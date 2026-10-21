@@ -71,7 +71,7 @@ class QrOrderingFlowTest extends TestCase
         $this->assertAuthenticatedAs($customer);
     }
 
-    public function test_signed_in_customer_menu_shows_account_name_without_a_login_link(): void
+    public function test_signed_in_customer_menu_shows_account_name_and_account_link_without_a_login_link(): void
     {
         [$cafe, , , $token] = $this->createCafeTableAndProduct();
         $customer = User::factory()->create([
@@ -85,7 +85,8 @@ class QrOrderingFlowTest extends TestCase
             ->get(route('customer.menu', $token))
             ->assertOk()
             ->assertSee('Deniz Kaya')
-            ->assertDontSee('Hesabım');
+            ->assertSee('Hesabım')
+            ->assertSee(route('customer.account', $token), false);
     }
 
     public function test_table_qr_is_server_generated_svg_and_rotation_revokes_previous_token(): void

@@ -4,6 +4,7 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\CustomerSessionController;
 use App\Http\Controllers\Auth\PasswordResetController;
 use App\Http\Controllers\Auth\RegisteredCustomerController;
+use App\Http\Controllers\Customer\AccountController;
 use App\Http\Controllers\Customer\MenuController;
 use App\Http\Controllers\Customer\OrderController;
 use App\Http\Controllers\Manage\AnnouncementController;
@@ -53,6 +54,7 @@ Route::get('/dil/{locale}', function (string $locale) {
 })->name('locale.switch');
 
 Route::get('/masa/{token}', [MenuController::class, 'show'])->middleware(['auth.session', 'throttle:qr-menu'])->name('customer.menu');
+Route::get('/masa/{token}/hesabim', [AccountController::class, 'show'])->middleware(['auth.session', 'throttle:customer-poll'])->name('customer.account');
 Route::post('/masa/{token}/siparis', [OrderController::class, 'store'])->middleware(['auth.session', 'throttle:qr-order'])->name('customer.orders.store');
 Route::get('/masa/{token}/siparis/{orderNumber}', [OrderController::class, 'track'])->middleware(['auth.session', 'throttle:customer-poll'])->name('customer.order.track');
 Route::get('/masa/{token}/adisyon', [OrderController::class, 'bill'])->middleware(['auth.session', 'throttle:customer-poll'])->name('customer.bill');

@@ -6,10 +6,12 @@ use App\Models\Branch;
 use App\Models\Cafe;
 use App\Models\DiningTable;
 use App\Models\LoyaltyAccount;
+use App\Models\LoyaltyTransaction;
 use App\Models\Order;
 use App\Models\TableSession;
 use App\Models\User;
 use App\Services\LoyaltyService;
+use App\Services\Money;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -93,6 +95,160 @@ class CustomerExperienceTest extends TestCase
             'cafe_id' => null,
         ]);
         $this->get(route('customer.menu', $token))->assertOk();
+    }
+
+    public function test_customer_registration_accepts_eight_character_passwords_and_rejects_shorter_ones(): void
+    {
+        [, , $table] = $this->cafeWithTable('Şifre Kafe', 'sifre-kafe');
+        $token = $table->token();
+
+        $this->get(route('customer.register', $token))
+            ->assertOk()
+            ->assertSee('minlength="8"', false)
+            ->assertSee('En az 8 karakter');
+
+        $this->post(route('customer.register.store', $token), [
+            'name' => 'Kısa Şifre',
+            'email' => 'kisa@example.com',
+            'password' => 'abc1234',
+            'password_confirmation' => 'abc1234',
+        ])->assertSessionHasErrors('password');
+
+        $this->post(route('customer.register.store', $token), [
+            'name' => 'Sekiz Karakter',
+            'email' => 'sekiz@example.com',
+            'password' => 'Coffee88',
+            'password_confirmation' => 'Coffee88',
+        ])->assertRedirect(route('customer.menu', $token));
+
+        $this->assertDatabaseHas('users', ['email' => 'sekiz@example.com', 'role' => User::ROLE_CUSTOMER]);
+    }
+
+    public function test_customer_account_shows_cafe_scoped_points_promotions_savings_and_order_history(): void
+    {
+        [$cafe, $branch, $table] = $this->cafeWithTable('Hesap Kafe', 'hesap-kafe');
+        $cafe->forceFill(['loyalty_enabled' => true, 'points_per_100' => 2])->save();
+        $customer = User::factory()->create([
+            'name' => 'Hesap Müşterisi',
+            'email' => 'hesap@example.com',
+            'role' => User::ROLE_CUSTOMER,
+            'cafe_id' => null,
+        ]);
+        LoyaltyAccount::query()->create([
+            'cafe_id' => $cafe->id,
+            'user_id' => $customer->id,
+            'points' => 75,
+            'completed_order_count' => 3,
+        ]);
+        $cafe->loyaltyCampaigns()->create([
+            'name' => '50 puanla 20 TL',
+            'type' => 'points',
+            'threshold' => 50,
+            'points_required' => 50,
+            'reward_type' => 'fixed',
+            'reward_value' => '20.00',
+            'minimum_order_total' => '0.00',
+            'is_active' => true,
+        ]);
+        $cafe->loyaltyCampaigns()->create([
+            'name' => '100 puanla yüzde 10',
+            'type' => 'points',
+            'threshold' => 100,
+            'points_required' => 100,
+            'reward_type' => 'percent',
+            'reward_value' => '10.00',
+            'minimum_order_total' => '0.00',
+            'is_active' => true,
+        ]);
+        $cafe->announcements()->create([
+            'type' => 'announcement',
+            'title' => 'Öğrenci kahvesi kampanyası',
+            'body' => 'Kampanya bu kafede aktif.',
+            'is_active' => true,
+        ]);
+
+        $this->actingAs($customer);
+        $paidOrder = $this->placeOrder($cafe, $branch, $table, 'Ödenmiş kahve', '150.00', 1);
+        $paidOrder->forceFill(['discount_total' => '25.00'])->save();
+        LoyaltyTransaction::query()->create([
+            'cafe_id' => $cafe->id,
+            'user_id' => $customer->id,
+            'type' => 'earned',
+            'points_delta' => 120,
+            'orders_delta' => 1,
+            'discount_amount' => '0.00',
+            'description' => 'Geçmişte kazanılan puanlar',
+        ]);
+
+        [$otherCafe, $otherBranch, $otherTable] = $this->cafeWithTable('Diğer Kafe', 'diger-hesap-kafe');
+        $otherCafeOrder = $this->placeOrder($otherCafe, $otherBranch, $otherTable, 'Başka kafe siparişi', '50.00', 1);
+        $cancelledOrder = $this->placeOrder($cafe, $branch, $table, 'İptal edilen kahve', '80.00', 1);
+        $cancelledOrder->forceFill([
+            'status' => Order::STATUS_CANCELLED,
+            'discount_total' => '99.00',
+            'paid_at' => null,
+        ])->save();
+
+        $this->get(route('customer.menu', $table->token()))
+            ->assertOk()
+            ->assertSee(route('customer.account', $table->token()), false)
+            ->assertHeader('Cache-Control', 'max-age=0, must-revalidate, no-store, private');
+
+        $this->get(route('customer.order.track', ['token' => $table->token(), 'orderNumber' => $paidOrder->order_number]))
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'max-age=0, must-revalidate, no-store, private');
+
+        $this->get(route('customer.bill', $table->token()))
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'max-age=0, must-revalidate, no-store, private');
+
+        $this->getJson(route('customer.status', $table->token()))
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'max-age=0, must-revalidate, no-store, private');
+
+        $this->withSession(['status' => null])
+            ->get(route('customer.account', $table->token()))
+            ->assertOk()
+            ->assertSee('Hesap Müşterisi')
+            ->assertSee('75')
+            ->assertSee('120')
+            ->assertSee(Money::format(2500))
+            ->assertSee('50 puanla 20 TL')
+            ->assertSee('100 puanla yüzde 10')
+            ->assertSee('Öğrenci kahvesi kampanyası')
+            ->assertSee($paidOrder->order_number)
+            ->assertHeader('Cache-Control', 'max-age=0, must-revalidate, no-store, private')
+            ->assertDontSee(Money::format(9900))
+            ->assertDontSee($otherCafeOrder->order_number);
+    }
+
+    public function test_customer_menu_hides_account_link_when_cafe_registration_is_disabled(): void
+    {
+        [$cafe, , $table] = $this->cafeWithTable('Misafir Kafe', 'misafir-kafe');
+        $cafe->forceFill(['registration_policy' => Cafe::POLICY_GUEST])->save();
+        $customer = User::factory()->create([
+            'role' => User::ROLE_CUSTOMER,
+            'cafe_id' => null,
+        ]);
+
+        $this->actingAs($customer)
+            ->get(route('customer.menu', $table->token()))
+            ->assertOk()
+            ->assertDontSee(route('customer.account', $table->token()), false);
+    }
+
+    public function test_customer_account_redirects_non_customers_to_the_qr_login(): void
+    {
+        [, , $table] = $this->cafeWithTable('Hesap Girişi', 'hesap-girisi');
+        $token = $table->token();
+
+        $this->get(route('customer.account', $token))
+            ->assertRedirect(route('customer.login', $token));
+
+        $waiter = User::factory()->create(['role' => User::ROLE_WAITER]);
+        $this->actingAs($waiter)
+            ->get(route('customer.account', $token))
+            ->assertRedirect(route('customer.login', $token));
     }
 
     public function test_required_registration_cannot_be_bypassed_with_direct_customer_endpoints(): void

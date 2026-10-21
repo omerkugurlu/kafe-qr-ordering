@@ -31,7 +31,7 @@ class RegisteredCustomerController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
-            'password' => ['required', 'string', 'min:12', 'confirmed', 'max:255'],
+            'password' => ['required', 'string', 'min:8', 'confirmed', 'max:255'],
         ]);
 
         $user = User::query()->create([

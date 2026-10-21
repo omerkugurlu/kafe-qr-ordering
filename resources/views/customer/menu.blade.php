@@ -83,7 +83,7 @@
         </header>
 
         <div class="relative z-10 mx-auto -mt-5 max-w-6xl px-4 sm:px-6">
-            <div class="grid grid-cols-2 gap-2 rounded-3xl border border-line bg-paper p-2 shadow-soft sm:grid-cols-4">
+            <div class="grid grid-cols-2 gap-2 rounded-3xl border border-line bg-paper p-2 shadow-soft {{ $customer !== null && $cafe->registration_policy !== \App\Models\Cafe::POLICY_GUEST ? 'sm:grid-cols-5' : 'sm:grid-cols-4' }}">
                 <div class="flex items-center gap-2 rounded-2xl bg-cream px-3 py-2.5">
                     <span class="grid size-8 shrink-0 place-items-center rounded-full bg-forest text-white"><x-ui.icon name="table" class="size-4" /></span>
                     <div class="min-w-0"><p class="text-[9px] font-bold uppercase tracking-[.14em] text-muted">{{ __('customer.table') }}</p><p class="truncate text-xs font-bold text-ink">{{ $table->name }}</p></div>
@@ -92,6 +92,12 @@
                     <span class="grid size-8 shrink-0 place-items-center rounded-full bg-paper text-forest"><x-ui.icon name="receipt" class="size-4" /></span>
                     <div class="min-w-0"><p class="text-[9px] font-bold uppercase tracking-[.14em] text-muted">{{ __('customer.bill') }}</p><p class="truncate text-xs font-bold text-ink">{{ __('customer.view_live_bill') }}</p></div>
                 </a>
+                @if ($customer !== null && $cafe->registration_policy !== \App\Models\Cafe::POLICY_GUEST)
+                    <a href="{{ route('customer.account', $token) }}" class="flex items-center gap-2 rounded-2xl bg-cream px-3 py-2.5 transition hover:bg-sage/60">
+                        <span class="grid size-8 shrink-0 place-items-center rounded-full bg-paper text-forest"><x-ui.icon name="user" class="size-4" /></span>
+                        <div class="min-w-0"><p class="text-[9px] font-bold uppercase tracking-[.14em] text-muted">{{ __('customer.my_account') }}</p><p class="truncate text-xs font-bold text-ink">{{ __('customer.points_and_rewards') }}</p></div>
+                    </a>
+                @endif
                 <button type="button" data-service-request="waiter" data-service-url="{{ route('customer.call', $token) }}" class="flex items-center gap-2 rounded-2xl bg-cream px-3 py-2.5 text-left transition hover:bg-sage/60">
                     <span class="grid size-8 shrink-0 place-items-center rounded-full bg-paper text-forest"><x-ui.icon name="bell" class="size-4" /></span>
                     <div class="min-w-0"><p class="text-[9px] font-bold uppercase tracking-[.14em] text-muted">{{ __('customer.service') }}</p><p class="truncate text-xs font-bold text-ink">{{ __('customer.call_waiter') }}</p></div>

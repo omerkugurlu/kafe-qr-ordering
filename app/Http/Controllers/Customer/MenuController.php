@@ -15,11 +15,11 @@ use App\Services\Money;
 use App\Services\OrderPresenter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\View\View;
+use Illuminate\Http\Response;
 
 class MenuController extends Controller
 {
-    public function show(Request $request, string $token, OrderPresenter $presenter): View|RedirectResponse
+    public function show(Request $request, string $token, OrderPresenter $presenter): Response|RedirectResponse
     {
         $table = DiningTable::query()
             ->where('public_token_hash', hash('sha256', $token))
@@ -231,7 +231,7 @@ class MenuController extends Controller
             'strings' => trans('customer'),
         ];
 
-        return view('customer.menu', [
+        return response()->view('customer.menu', [
             'table' => $table,
             'branch' => $branch,
             'cafe' => $cafe,
@@ -245,6 +245,6 @@ class MenuController extends Controller
             'orderCount' => $session !== null
                 ? $session->orders()->whereNotIn('status', [Order::STATUS_CANCELLED])->count()
                 : 0,
-        ]);
+        ])->header('Cache-Control', 'private, no-store, max-age=0, must-revalidate');
     }
 }

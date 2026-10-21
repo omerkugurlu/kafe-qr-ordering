@@ -68,12 +68,12 @@
                 <div class="grid gap-4 sm:grid-cols-2">
                     <label class="block">
                         <span class="label">{{ __('customer.password') }}</span>
-                        <input type="password" name="password" minlength="12" required autocomplete="new-password" class="input" placeholder="En az 12 karakter">
+                        <input type="password" name="password" minlength="8" required autocomplete="new-password" class="input" placeholder="En az 8 karakter">
                     </label>
 
                     <label class="block">
                         <span class="label">Şifreyi tekrar yazın</span>
-                        <input type="password" name="password_confirmation" minlength="12" required autocomplete="new-password" class="input" placeholder="••••••••••••">
+                        <input type="password" name="password_confirmation" minlength="8" required autocomplete="new-password" class="input" placeholder="••••••••">
                     </label>
                 </div>
 

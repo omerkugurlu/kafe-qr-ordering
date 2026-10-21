@@ -21,10 +21,10 @@ use App\Services\ProductOptionSelectionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
-use Illuminate\View\View;
 
 class OrderController extends Controller
 {
@@ -316,7 +316,7 @@ class OrderController extends Controller
         return redirect()->to($redirect)->with('status', $message);
     }
 
-    public function track(Request $request, string $token, string $orderNumber, OrderPresenter $presenter): View|RedirectResponse
+    public function track(Request $request, string $token, string $orderNumber, OrderPresenter $presenter): Response|RedirectResponse
     {
         $table = $this->tableForToken($token);
 
@@ -331,7 +331,7 @@ class OrderController extends Controller
             ->with(['items.options', 'tableSession.diningTable', 'tableSession.payments.recorder'])
             ->firstOrFail();
 
-        return view('customer.track', [
+        return response()->view('customer.track', [
             'table' => $table,
             'branch' => $table->branch,
             'cafe' => $table->branch->cafe,
@@ -339,10 +339,10 @@ class OrderController extends Controller
             'order' => $presenter->order($order),
             'session' => $presenter->session($order->tableSession),
             'trackedOrderNumber' => $order->order_number,
-        ]);
+        ])->header('Cache-Control', 'private, no-store, max-age=0, must-revalidate');
     }
 
-    public function bill(Request $request, string $token, OrderPresenter $presenter): View|RedirectResponse
+    public function bill(Request $request, string $token, OrderPresenter $presenter): Response|RedirectResponse
     {
         $table = $this->tableForToken($token);
 
@@ -366,13 +366,13 @@ class OrderController extends Controller
                 ->with('status', 'Masanızda açık bir adisyon bulunmuyor.');
         }
 
-        return view('customer.bill', [
+        return response()->view('customer.bill', [
             'table' => $table,
             'branch' => $table->branch,
             'cafe' => $table->branch->cafe,
             'token' => $token,
             'session' => $presenter->session($session),
-        ]);
+        ])->header('Cache-Control', 'private, no-store, max-age=0, must-revalidate');
     }
 
     public function status(Request $request, string $token, OrderPresenter $presenter): JsonResponse
@@ -406,7 +406,7 @@ class OrderController extends Controller
             'server_time' => now()->toIso8601String(),
             'session' => $session !== null ? $presenter->session($session) : null,
             'order' => $order !== null ? $presenter->order($order) : null,
-        ]);
+        ])->header('Cache-Control', 'private, no-store, max-age=0, must-revalidate');
     }
 
     public function checkCoupon(Request $request, string $token): JsonResponse
