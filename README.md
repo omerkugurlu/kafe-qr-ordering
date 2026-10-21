@@ -1,58 +1,65 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# SkyKite Masa Sipariş
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Kafeler için Türkçe QR menü, masa siparişi, garson ve işletme yönetim sistemi. Uygulama PHP 8.4, Laravel 13, MySQL, Livewire ve derlenmiş Tailwind CSS kullanır.
 
-## About Laravel
+## Yerel geliştirme
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+XAMPP MySQL servisini başlatın. Windows PowerShell'de PHP 8.4'ü XAMPP PHP'sinden önce PATH'e ekleyin:
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
-
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
-
-## Learning Laravel
-
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
-
-```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+```powershell
+$env:Path = 'C:\xampp\htdocs\tools\php84;' + $env:Path
+php -v
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+PHP 8.4 ve Composer kurulu olmalı. Proje kök dizininde bağımlılıkları kurun ve yerel ortam dosyasını oluşturun:
 
-## Contributing
+```powershell
+composer install
+Copy-Item .env.example .env
+php artisan key:generate
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+MySQL'de `kafe_qr_ordering` adlı bir `utf8mb4` veritabanı oluşturun. `.env` içindeki `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME` ve `DB_PASSWORD` alanlarını yerel MySQL ayarlarınıza göre düzenleyin. Ardından veritabanını hazırlayıp ön yüz varlıklarını derleyin:
 
-## Code of Conduct
+```powershell
+php artisan migrate
+npm install
+npm run build
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+İlk süper admin hesabını güvenli parola girişiyle oluşturun; parola terminalde gösterilmez:
 
-## Security Vulnerabilities
+```powershell
+php artisan app:create-platform-admin
+```
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+Uygulamayı başlatın:
 
-## License
+```powershell
+php artisan serve
+```
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Site `http://127.0.0.1:8000` adresinde açılır. Arayüz kaynaklarında değişiklik yaparken ikinci terminalde `npm run dev` çalıştırabilirsiniz.
+
+## Ürün akışları
+
+- **Süper admin:** Kafe, ilk kafe sahibi ve şube oluşturma; kafeyi etkinleştirme veya askıya alma.
+- **Kafe sahibi/yöneticisi:** Şube ve ekip yönetimi; ortak veya bağımsız menü; kategori, ürün, fiyat ve bulunurluk; ortak menü kullanılan şubelerde şubeye özel fiyat/bulunurluk; masa ve QR yönetimi.
+- **Müşteri:** Masa QR kodundan menüyü görme, sipariş ve not gönderme; kafe ayarına göre hesapsız, isteğe bağlı veya zorunlu kayıt; hesabıyla sadakat bakiyesi görme ve uygun ödülü kullanma.
+- **Garson:** Yetkili şubelerde siparişleri sekiz saniyede bir yenileme; sipariş kabul, servis ve gerekçeli iptal; açık adisyona şube menüsünden ürün ekleme; ürün/kişi bazlı kısmi nakit ve fiziksel POS kart tahsilatı; gerekçeli ödeme iptali için geçmiş kaydı; adisyon kapatma.
+- **Sadakat:** Ödenip servis edilen hesaplı müşteri siparişlerinde puan ve tamamlanan sipariş biriktirme; puan veya sipariş sayısına bağlı sabit/yüzdeli ödül; iptal edilen sipariş ödülünün telafisi.
+
+Kart ödemeleri uygulamada işlenmez. Garson, fiziksel POS cihazında aldığı ödemeyi sisteme kaydeder. QR siparişi garson onayına kadar beklemede kalır. Sipariş satırları ad ve fiyat anlık görüntüsünü saklar.
+
+## Doğrulama
+
+```powershell
+php artisan test
+npm run build
+```
+
+Özellik testleri süper admin kafe oluşturma, QR sipariş/fiyat anlık görüntüsü, kayıt politikası, şube/tenant yetkisi, şube menü override'ı, kısmi ödeme, ödeme iptali, ödeme öncesi servis ve sadakat akışlarını kapsar.
+
+## Canlıya alma öncesi
+
+Bu depo yerel geliştirme için hazırlanmıştır. Canlı kullanımdan önce HTTPS, güvenli ve gizli `.env`, üretim e-posta servisi, yedekleme/geri yükleme, erişim ve log politikaları, KVKK metinleri ve gerçek kullanıcılarla tarayıcı kabul testi yapılandırılmalıdır. Üretim dağıtımı bu projede yapılmamıştır.

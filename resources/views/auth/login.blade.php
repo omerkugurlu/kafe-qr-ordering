@@ -1,0 +1,13 @@
+<x-layouts.app title="Giriş yap">
+    <div class="mx-auto grid max-w-4xl overflow-hidden rounded-[2rem] border border-ink/10 bg-paper panel-shadow md:grid-cols-[.9fr_1.1fr]">
+        <div class="relative hidden min-h-[480px] flex-col justify-between overflow-hidden bg-leaf p-9 text-white md:flex"><div class="absolute -right-20 -top-20 size-72 rounded-full border-[48px] border-lime/10"></div><div><span class="grid size-12 place-items-center rounded-2xl bg-lime text-leaf"><svg viewBox="0 0 24 24" class="size-6" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 4C12 4 6 7 6 14c0 3 2 5 5 5 7 0 9-7 9-15Z"/><path d="M4 20c2-5 6-8 11-11"/></svg></span><p class="mt-12 text-sm font-bold uppercase tracking-[.18em] text-lime">İşletme yönetimi</p><h1 class="mt-4 font-display text-4xl font-extrabold leading-tight">Servis akışını<br>tek ekrandan<br>yönet.</h1></div><p class="text-sm text-white/65">Menüden masaya, siparişten ödemeye.</p></div>
+        <div class="p-7 sm:p-10 md:p-12"><p class="text-xs font-bold uppercase tracking-[.16em] text-clay">Hoş geldiniz</p><h2 class="mt-2 font-display text-3xl font-extrabold tracking-tight">Hesabına giriş yap</h2><p class="mt-2 text-sm text-muted">Yönetim ve servis paneline devam et.</p>
+            <form class="mt-8 space-y-5" method="post" action="{{ route('login.store') }}">@csrf
+                <label class="block"><span class="mb-2 block text-sm font-bold">E-posta adresi</span><input type="email" name="email" autocomplete="username" required autofocus value="{{ old('email') }}" class="w-full rounded-xl border border-ink/15 bg-cream/45 px-4 py-3.5 outline-none transition focus:border-leaf focus:ring-4 focus:ring-leaf/10" placeholder="ornek@kafe.com"></label>
+                <label class="block"><span class="mb-2 block text-sm font-bold">Şifre</span><input type="password" name="password" autocomplete="current-password" required class="w-full rounded-xl border border-ink/15 bg-cream/45 px-4 py-3.5 outline-none transition focus:border-leaf focus:ring-4 focus:ring-leaf/10" placeholder="Şifrenizi girin"></label>
+                <div class="flex items-center justify-between gap-3"><label class="flex items-center gap-2 text-sm text-muted"><input type="checkbox" name="remember" value="1" class="size-4 accent-leaf"> Beni hatırla</label><a href="{{ route('password.request') }}" class="text-sm font-semibold text-leaf hover:underline">Şifremi unuttum</a></div>
+                <button class="w-full rounded-xl bg-leaf px-5 py-3.5 font-bold text-white transition hover:bg-ink">Giriş yap <span aria-hidden="true">→</span></button>
+            </form>
+        </div>
+    </div>
+</x-layouts.app>
