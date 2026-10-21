@@ -212,6 +212,9 @@ class MenuController extends Controller
             'products' => $productData,
             'featured_ids' => $featuredIds->values()->all(),
             'session' => $sessionPayload,
+            'ordering_available' => $session?->status === TableSession::STATUS_OPEN
+                && $session->qr_ordering_enabled
+                && ! ($sessionPayload['qr_order_pending'] ?? false),
             'loyalty' => $loyalty,
             'urls' => [
                 'order' => route('customer.orders.store', $token),

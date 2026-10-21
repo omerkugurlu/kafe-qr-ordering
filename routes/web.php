@@ -130,10 +130,15 @@ Route::middleware(['auth', 'auth.session', 'role:waiter,kitchen'])->prefix('gars
     Route::get('/sube/{branch}/akis', [BoardController::class, 'data'])->middleware('throttle:staff-poll')->name('board.data');
     Route::post('/siparis/{order}/durum', [BoardController::class, 'updateStatus'])->middleware('throttle:admin-write')->name('orders.status');
     Route::post('/cagri/{serviceRequest}/tamam', [BoardController::class, 'resolveServiceRequest'])->middleware('throttle:admin-write')->name('service-requests.resolve');
+    Route::post('/cagri/{serviceRequest}/al', [BoardController::class, 'claimServiceRequest'])->middleware(['role:waiter', 'throttle:admin-write'])->name('service-requests.claim');
+    Route::post('/cagri/{serviceRequest}/birak', [BoardController::class, 'releaseServiceRequest'])->middleware(['role:waiter', 'throttle:admin-write'])->name('service-requests.release');
 });
 
 Route::middleware(['auth', 'auth.session', 'role:waiter,cafe_owner,cafe_manager'])->prefix('garson')->name('staff.')->group(function (): void {
+    Route::post('/sube/{branch}/masa/{table}/ac', [TableSessionController::class, 'openTable'])->middleware('throttle:admin-write')->name('sessions.open-table');
     Route::get('/adisyon/{sessionId}', [TableSessionController::class, 'show'])->name('sessions.show');
+    Route::post('/adisyon/{sessionId}/qr', [TableSessionController::class, 'setQrOrdering'])->middleware('throttle:admin-write')->name('sessions.qr-ordering.update');
+    Route::post('/siparis/{order}/duzelt', [TableSessionController::class, 'correctOrder'])->middleware('throttle:admin-write')->name('orders.correct');
     Route::post('/adisyon/{sessionId}/urun-ekle', [TableSessionController::class, 'addItems'])->middleware('throttle:admin-write')->name('sessions.items.store');
     Route::post('/adisyon/{sessionId}/odemeler', [PaymentController::class, 'store'])->middleware('throttle:admin-write')->name('sessions.payments.store');
     Route::post('/adisyon/{sessionId}/odemeler/{paymentId}/iptal', [PaymentController::class, 'void'])->middleware('throttle:admin-write')->name('sessions.payments.void');

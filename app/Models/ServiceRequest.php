@@ -25,6 +25,8 @@ class ServiceRequest extends Model
         'type',
         'status',
         'note',
+        'claimed_by',
+        'claimed_at',
         'resolved_by',
         'resolved_at',
     ];
@@ -32,6 +34,7 @@ class ServiceRequest extends Model
     protected function casts(): array
     {
         return [
+            'claimed_at' => 'datetime',
             'resolved_at' => 'datetime',
         ];
     }
@@ -54,5 +57,10 @@ class ServiceRequest extends Model
     public function resolver(): BelongsTo
     {
         return $this->belongsTo(User::class, 'resolved_by');
+    }
+
+    public function claimedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'claimed_by');
     }
 }

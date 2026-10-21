@@ -9,6 +9,7 @@ use App\Models\LoyaltyAccount;
 use App\Models\LoyaltyCampaign;
 use App\Models\Order;
 use App\Models\Payment;
+use App\Models\TableSession;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
@@ -28,6 +29,12 @@ class LoyaltyOrderFlowTest extends TestCase
         $category = $cafe->categories()->create(['name' => 'Kahveler', 'is_active' => true]);
         $product = $cafe->products()->create(['category_id' => $category->id, 'name' => 'Filtre kahve', 'price' => '250.00', 'is_available' => true]);
         $table = DiningTable::createWithToken(['branch_id' => $branch->id, 'name' => 'Masa 4', 'is_active' => true]);
+        TableSession::query()->create([
+            'branch_id' => $branch->id,
+            'dining_table_id' => $table->id,
+            'status' => TableSession::STATUS_OPEN,
+            'opened_at' => now(),
+        ]);
         $customer = User::factory()->create(['role' => User::ROLE_CUSTOMER, 'cafe_id' => $cafe->id]);
         LoyaltyAccount::query()->create(['cafe_id' => $cafe->id, 'user_id' => $customer->id, 'points' => 100, 'completed_order_count' => 0]);
         $campaign = $cafe->loyaltyCampaigns()->create([

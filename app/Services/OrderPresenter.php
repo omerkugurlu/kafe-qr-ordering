@@ -71,6 +71,8 @@ class OrderPresenter
             'id' => $session->id,
             'status' => $session->status,
             'is_open' => $session->status === TableSession::STATUS_OPEN,
+            'qr_ordering_enabled' => $session->qr_ordering_enabled,
+            'qr_order_pending' => $activeOrders->contains(fn (Order $order): bool => $order->source === 'qr' && $order->status === Order::STATUS_PENDING),
             'table_name' => $session->diningTable?->name,
             'opened_at' => $session->opened_at?->toIso8601String(),
             'opened_label' => $session->opened_at?->diffForHumans(),

@@ -14,7 +14,10 @@ use App\Models\TableSession;
 use App\Models\User;
 use App\Services\Money;
 use App\Services\OrderSettlementService;
+use App\Services\PaymentAllocationService;
 use App\Services\ProductOptionSelectionService;
+use App\Services\ServiceRequestLifecycleService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -25,38 +28,68 @@ use Illuminate\View\View;
 
 class TableSessionController extends Controller
 {
-    public function show(int $sessionId): View
+    public function openTable(Request $request, Branch $branch, DiningTable $table): JsonResponse|RedirectResponse
+    {
+        Gate::authorize('view', $branch);
+
+        $result = DB::transaction(function () use ($request, $branch, $table): array {
+            $lockedTable = DiningTable::query()->whereKey($table->id)->lockForUpdate()->firstOrFail();
+            abort_unless($lockedTable->branch_id === $branch->id && $lockedTable->is_active, 404);
+            $lockedBranch = Branch::query()->whereKey($branch->id)->lockForUpdate()->firstOrFail();
+            $cafe = Cafe::query()->whereKey($lockedBranch->cafe_id)->lockForUpdate()->firstOrFail();
+            abort_unless($lockedBranch->is_active && $cafe->status === Cafe::STATUS_ACTIVE, 404);
+
+            $session = TableSession::query()
+                ->where('dining_table_id', $lockedTable->id)
+                ->where('status', TableSession::STATUS_OPEN)
+                ->lockForUpdate()
+                ->latest('id')
+                ->first();
+
+            if ($session !== null) {
+                return ['session' => $session, 'created' => false];
+            }
+
+            $session = TableSession::query()->create([
+                'branch_id' => $lockedBranch->id,
+                'dining_table_id' => $lockedTable->id,
+                'status' => TableSession::STATUS_OPEN,
+                'qr_ordering_enabled' => true,
+                'opened_by' => $request->user()->id,
+                'opened_at' => now(),
+            ]);
+
+            ActivityLog::query()->create([
+                'cafe_id' => $cafe->id,
+                'branch_id' => $lockedBranch->id,
+                'user_id' => $request->user()->id,
+                'action' => 'table_session.opened',
+                'subject_type' => TableSession::class,
+                'subject_id' => $session->id,
+                'metadata' => ['table_id' => $lockedTable->id],
+                'ip_address' => $request->ip(),
+            ]);
+
+            return ['session' => $session, 'created' => true];
+        });
+
+        $url = route('staff.sessions.show', $result['session']->id);
+
+        if ($request->expectsJson()) {
+            return response()->json(['ok' => true, 'created' => $result['created'], 'url' => $url]);
+        }
+
+        return redirect()->to($url)->with('status', $result['created'] ? 'Masa açıldı. QR ve manuel sipariş alabilirsiniz.' : 'Masanın adisyonu zaten açık.');
+    }
+
+    public function show(int $sessionId, PaymentAllocationService $paymentAllocation): View
     {
         $session = TableSession::query()->with(['branch.cafe', 'diningTable', 'orders.items.options', 'payments.recorder'])->findOrFail($sessionId);
         Gate::authorize('view', $session->branch);
 
         $dueCents = $session->dueAmountCents();
         $activePayments = $session->payments->whereNull('voided_at');
-        $paidByItemCents = $activePayments
-            ->whereNotNull('order_item_id')
-            ->groupBy('order_item_id')
-            ->map(fn ($payments): int => $payments->sum(fn ($payment): int => Money::toCents($payment->amount)));
-        $unallocatedPaymentCents = $activePayments
-            ->whereNull('order_item_id')
-            ->sum(fn ($payment): int => Money::toCents($payment->amount));
-        $itemDueCents = [];
-        $mappedItemDueCents = 0;
-
-        foreach ($session->orders->whereIn('status', ['accepted', 'ready', 'served']) as $order) {
-            foreach ($order->items as $item) {
-                $itemDue = max(0, Money::toCents($item->line_total) - ($paidByItemCents[$item->id] ?? 0));
-                $generalPayment = min($itemDue, $unallocatedPaymentCents);
-                $unallocatedPaymentCents -= $generalPayment;
-                $itemDue -= $generalPayment;
-
-                $itemDue = min($itemDue, max(0, $dueCents - $mappedItemDueCents));
-
-                if ($itemDue > 0) {
-                    $itemDueCents[$item->id] = $itemDue;
-                    $mappedItemDueCents += $itemDue;
-                }
-            }
-        }
+        $itemDueCents = $paymentAllocation->itemBalances($session);
 
         $branch = $session->branch;
         $branchMenuId = $branch->uses_shared_menu ? null : $branch->id;
@@ -72,7 +105,38 @@ class TableSessionController extends Controller
             $category->products->filter(fn ($product) => $product->isAvailableAt($branch))->values(),
         ));
 
-        return view('staff.session', compact('session', 'categories', 'dueCents', 'itemDueCents'));
+        return view('staff.session', compact('session', 'categories', 'dueCents', 'itemDueCents', 'activePayments'));
+    }
+
+    public function setQrOrdering(Request $request, int $sessionId): RedirectResponse
+    {
+        $validated = $request->validate(['enabled' => ['required', 'boolean']]);
+        $session = TableSession::query()->with('branch')->findOrFail($sessionId);
+        Gate::authorize('view', $session->branch);
+        $enabled = (bool) $validated['enabled'];
+
+        DB::transaction(function () use ($session, $request, $enabled): void {
+            $locked = TableSession::query()->whereKey($session->id)->lockForUpdate()->firstOrFail();
+            abort_unless($locked->status === TableSession::STATUS_OPEN, 409);
+
+            if ($locked->qr_ordering_enabled === $enabled) {
+                return;
+            }
+
+            $locked->forceFill(['qr_ordering_enabled' => $enabled])->save();
+            ActivityLog::query()->create([
+                'cafe_id' => $locked->branch->cafe_id,
+                'branch_id' => $locked->branch_id,
+                'user_id' => $request->user()->id,
+                'action' => $enabled ? 'table_session.qr_ordering_enabled' : 'table_session.qr_ordering_disabled',
+                'subject_type' => TableSession::class,
+                'subject_id' => $locked->id,
+                'metadata' => [],
+                'ip_address' => $request->ip(),
+            ]);
+        });
+
+        return back()->with('status', $enabled ? 'Masada QR siparişi açıldı.' : 'Masada QR siparişi kapatıldı. Adisyon açık kalır.');
     }
 
     public function addItems(Request $request, int $sessionId, OrderSettlementService $settlement, ProductOptionSelectionService $optionSelection): RedirectResponse
@@ -83,7 +147,9 @@ class TableSessionController extends Controller
             'options' => ['nullable', 'array'],
             'options.*' => ['array'],
             'note' => ['nullable', 'string', 'max:500'],
+            'mode' => ['nullable', 'in:send,served'],
         ]);
+        $mode = $validated['mode'] ?? 'send';
         $session = TableSession::query()->with('branch.cafe')->findOrFail($sessionId);
         Gate::authorize('view', $session->branch);
         $quantities = collect($validated['items'])->mapWithKeys(
@@ -97,7 +163,7 @@ class TableSessionController extends Controller
             throw ValidationException::withMessages(['items' => 'Bir adisyon işleminde en fazla 30 farklı ürün seçebilirsiniz.']);
         }
 
-        $order = DB::transaction(function () use ($session, $request, $validated, $quantities, $settlement, $optionSelection): Order {
+        $order = DB::transaction(function () use ($session, $request, $validated, $quantities, $mode, $settlement, $optionSelection): Order {
             $table = DiningTable::query()->whereKey($session->dining_table_id)->lockForUpdate()->firstOrFail();
             $branch = Branch::query()->whereKey($table->branch_id)->lockForUpdate()->firstOrFail();
             $cafe = Cafe::query()->whereKey($branch->cafe_id)->lockForUpdate()->firstOrFail();
@@ -157,13 +223,13 @@ class TableSessionController extends Controller
                 'created_by' => $request->user()->id,
                 'order_number' => $orderNumber,
                 'source' => 'waiter',
-                'status' => Order::STATUS_SERVED,
+                'status' => $mode === 'served' ? Order::STATUS_SERVED : Order::STATUS_PENDING,
                 'subtotal' => self::centsToMoney($subtotalCents),
                 'discount_total' => '0.00',
                 'total' => self::centsToMoney($subtotalCents),
                 'customer_note' => $validated['note'] ?? null,
-                'accepted_at' => now(),
-                'served_at' => now(),
+                'accepted_at' => $mode === 'served' ? now() : null,
+                'served_at' => $mode === 'served' ? now() : null,
             ]);
             foreach ($snapshots as $snapshot) {
                 $optionSnapshots = $snapshot['option_snapshots'];
@@ -171,7 +237,9 @@ class TableSessionController extends Controller
                 $item = $order->items()->create($snapshot);
                 $item->options()->createMany($optionSnapshots);
             }
-            $settlement->settleServedOrders($lockedSession);
+            if ($mode === 'served') {
+                $settlement->settleServedOrders($lockedSession);
+            }
             ActivityLog::query()->create([
                 'cafe_id' => $cafe->id,
                 'branch_id' => $branch->id,
@@ -179,23 +247,125 @@ class TableSessionController extends Controller
                 'action' => 'order.added_by_waiter',
                 'subject_type' => Order::class,
                 'subject_id' => $order->id,
-                'metadata' => ['source' => 'waiter', 'total' => $order->total],
+                'metadata' => ['source' => 'waiter', 'mode' => $mode, 'total' => $order->total],
                 'ip_address' => $request->ip(),
             ]);
 
             return $order;
         });
 
-        return redirect()->route('staff.sessions.show', $sessionId)->with('status', "Ürünler adisyona eklendi. Sipariş numarası: {$order->order_number}");
+        $message = $mode === 'served'
+            ? "Servis edilmiş ürünler adisyona eklendi. Sipariş numarası: {$order->order_number}"
+            : "Manuel sipariş mutfağa gönderildi. Sipariş numarası: {$order->order_number}";
+
+        return redirect()->route('staff.sessions.show', $sessionId)->with('status', $message);
     }
 
-    public function close(Request $request, int $sessionId, OrderSettlementService $settlement): RedirectResponse
+    public function correctOrder(Request $request, Order $order): RedirectResponse
+    {
+        $validated = $request->validate([
+            'items' => ['required', 'array', 'min:1', 'max:30'],
+            'items.*.quantity' => ['required', 'integer', 'min:1', 'max:20'],
+            'reason' => ['required', 'string', 'min:3', 'max:160'],
+            'customer_note' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        Gate::authorize('view', $order->branch);
+
+        DB::transaction(function () use ($request, $order, $validated): void {
+            $session = TableSession::query()->whereKey($order->table_session_id)->lockForUpdate()->firstOrFail();
+            $lockedOrder = Order::query()->whereKey($order->id)->where('table_session_id', $session->id)->lockForUpdate()->firstOrFail();
+            abort_unless($session->status === TableSession::STATUS_OPEN, 409);
+
+            if (! in_array($lockedOrder->status, [
+                Order::STATUS_PENDING,
+                Order::STATUS_ACCEPTED,
+                Order::STATUS_READY,
+                Order::STATUS_SERVED,
+            ], true)) {
+                throw ValidationException::withMessages(['order' => 'Ödenmiş veya iptal edilmiş sipariş değiştirilemez.']);
+            }
+
+            if ((float) $lockedOrder->discount_total > 0 || $lockedOrder->coupon_id !== null || $lockedOrder->loyalty_campaign_id !== null) {
+                throw ValidationException::withMessages(['order' => 'İndirimli siparişler geçmişi korumak için bu ekrandan değiştirilemez.']);
+            }
+
+            if ($session->payments()->whereNull('voided_at')->exists()) {
+                throw ValidationException::withMessages(['order' => 'Adisyonda ödeme kaydı varken sipariş değiştirilemez. Önce ödeme kaydını düzeltin.']);
+            }
+
+            $items = $lockedOrder->items()->lockForUpdate()->get()->keyBy('id');
+            $submittedIds = collect(array_keys($validated['items']))->map(fn ($id): int => (int) $id)->sort()->values();
+            $existingIds = $items->keys()->map(fn ($id): int => (int) $id)->sort()->values();
+
+            if ($submittedIds->all() !== $existingIds->all()) {
+                throw ValidationException::withMessages(['items' => 'Sipariş satırları yenilendi. Sayfayı yenileyip tekrar deneyin.']);
+            }
+
+            $oldTotalCents = Money::toCents((string) $lockedOrder->total);
+            $subtotalCents = 0;
+            $changes = [];
+
+            foreach ($validated['items'] as $itemId => $values) {
+                $item = $items->get((int) $itemId);
+                $quantity = (int) $values['quantity'];
+                $unitPriceCents = Money::toCents((string) $item->unit_price);
+                $lineTotalCents = $unitPriceCents * $quantity;
+                $subtotalCents += $lineTotalCents;
+
+                if ($item->quantity !== $quantity) {
+                    $changes[] = [
+                        'item_id' => $item->id,
+                        'name' => $item->name_snapshot,
+                        'old_quantity' => $item->quantity,
+                        'new_quantity' => $quantity,
+                    ];
+                }
+
+                $item->forceFill([
+                    'quantity' => $quantity,
+                    'line_total' => Money::toDecimal($lineTotalCents),
+                ])->save();
+            }
+
+            if ($changes === [] && ($validated['customer_note'] ?? null) === $lockedOrder->customer_note) {
+                throw ValidationException::withMessages(['order' => 'Siparişte kaydedilecek bir değişiklik yok.']);
+            }
+
+            $lockedOrder->forceFill([
+                'subtotal' => Money::toDecimal($subtotalCents),
+                'total' => Money::toDecimal($subtotalCents),
+                'customer_note' => $validated['customer_note'] ?? null,
+            ])->save();
+
+            ActivityLog::query()->create([
+                'cafe_id' => $lockedOrder->cafe_id,
+                'branch_id' => $lockedOrder->branch_id,
+                'user_id' => $request->user()->id,
+                'action' => 'order.corrected',
+                'subject_type' => Order::class,
+                'subject_id' => $lockedOrder->id,
+                'metadata' => [
+                    'reason' => trim($validated['reason']),
+                    'old_total' => Money::toDecimal($oldTotalCents),
+                    'new_total' => Money::toDecimal($subtotalCents),
+                    'items' => $changes,
+                    'customer_note' => $validated['customer_note'] ?? null,
+                ],
+                'ip_address' => $request->ip(),
+            ]);
+        });
+
+        return redirect()->route('staff.sessions.show', $order->table_session_id)->with('status', 'Sipariş düzeltildi; ürün fiyatlarının sipariş anındaki kaydı korundu.');
+    }
+
+    public function close(Request $request, int $sessionId, OrderSettlementService $settlement, ServiceRequestLifecycleService $serviceRequests): RedirectResponse
     {
         $validated = $request->validate(['closing_note' => ['nullable', 'string', 'max:160']]);
         $session = TableSession::query()->with('branch')->findOrFail($sessionId);
         Gate::authorize('view', $session->branch);
 
-        DB::transaction(function () use ($session, $request, $validated, $settlement): void {
+        DB::transaction(function () use ($session, $request, $validated, $settlement, $serviceRequests): void {
             $locked = TableSession::query()->whereKey($session->id)->lockForUpdate()->firstOrFail();
             abort_unless($locked->status === TableSession::STATUS_OPEN, 409);
 
@@ -208,10 +378,13 @@ class TableSessionController extends Controller
 
             $locked->forceFill([
                 'status' => TableSession::STATUS_CLOSED,
+                'qr_ordering_enabled' => false,
                 'closed_by' => $request->user()->id,
                 'closed_at' => now(),
                 'closing_note' => $validated['closing_note'] ?? null,
             ])->save();
+
+            $serviceRequests->resolveForClosedSession($locked, $request->user(), $request->ip());
 
             ActivityLog::query()->create([
                 'cafe_id' => $locked->branch->cafe_id,

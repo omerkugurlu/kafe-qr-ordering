@@ -63,12 +63,22 @@ class BoardController extends Controller
             ->get()
             ->keyBy('dining_table_id');
 
+        $latestSessionIds = $branch->tableSessions()
+            ->selectRaw('MAX(id) as latest_id')
+            ->groupBy('dining_table_id')
+            ->pluck('latest_id');
+        $latestSessions = TableSession::query()
+            ->whereIn('id', $latestSessionIds)
+            ->get()
+            ->keyBy('dining_table_id');
+
         $tables = $branch->diningTables()
             ->where('is_active', true)
             ->orderBy('name')
             ->get()
-            ->map(function ($table) use ($openSessions): array {
+            ->map(function ($table) use ($openSessions, $latestSessions): array {
                 $session = $openSessions->get($table->id);
+                $lastSession = $latestSessions->get($table->id);
 
                 return [
                     'id' => $table->id,
@@ -76,6 +86,10 @@ class BoardController extends Controller
                     'is_open' => $session !== null,
                     'session_id' => $session?->id,
                     'session_url' => $session !== null ? route('staff.sessions.show', $session->id) : null,
+                    'qr_ordering_enabled' => $session?->qr_ordering_enabled ?? false,
+                    'last_session_url' => $lastSession !== null ? route('staff.sessions.show', $lastSession->id) : null,
+                    'last_session_status' => $lastSession?->status,
+                    'last_session_opened_label' => $lastSession?->opened_at?->timezone('Europe/Istanbul')->format('d.m.Y H:i'),
                     'due_cents' => $session?->dueAmountCents() ?? 0,
                     'due' => Money::format($session?->dueAmountCents() ?? 0),
                     'active_orders' => $session?->activeOrdersCount() ?? 0,
@@ -86,7 +100,7 @@ class BoardController extends Controller
             ->all();
 
         $requests = $branch->serviceRequests()
-            ->with('diningTable')
+            ->with(['diningTable', 'claimedBy'])
             ->where('status', ServiceRequest::STATUS_OPEN)
             ->latest()
             ->get()
@@ -97,6 +111,11 @@ class BoardController extends Controller
                 'type_label' => $serviceRequest->type === ServiceRequest::TYPE_BILL ? 'Hesap istiyor' : 'Garson çağırıyor',
                 'note' => $serviceRequest->note,
                 'created_label' => $serviceRequest->created_at?->diffForHumans(),
+                'claimed_by' => $serviceRequest->claimed_by,
+                'claimed_by_name' => $serviceRequest->claimedBy?->name,
+                'is_claimed_by_me' => $serviceRequest->claimed_by === auth()->id(),
+                'can_manage_requests' => auth()->user()?->hasRole(User::ROLE_CAFE_OWNER, User::ROLE_CAFE_MANAGER) ?? false,
+                'can_claim_requests' => auth()->user()?->hasRole(User::ROLE_WAITER) ?? false,
             ])
             ->values()
             ->all();
@@ -110,12 +129,6 @@ class BoardController extends Controller
 
             return $payload;
         })->values()->all();
-
-        $paidToday = Payment::query()
-            ->whereNull('voided_at')
-            ->whereDate('recorded_at', today())
-            ->whereHas('tableSession', fn ($query) => $query->where('branch_id', $branch->id))
-            ->sum('amount');
 
         $requestsVersion = $branch->serviceRequests()
             ->where('status', ServiceRequest::STATUS_OPEN)
@@ -136,11 +149,10 @@ class BoardController extends Controller
                 'ready' => $orders->where('status', Order::STATUS_READY)->count(),
                 'open_tables' => $openSessions->count(),
                 'requests' => count($requests),
-                'paid_today_cents' => Money::toCents($paidToday),
-                'paid_today' => Money::format(Money::toCents($paidToday)),
             ],
             'orders' => $orderPayload,
             'tables' => $tables,
+            'can_open_tables' => auth()->user()?->hasRole(User::ROLE_WAITER, User::ROLE_CAFE_OWNER, User::ROLE_CAFE_MANAGER) ?? false,
             'requests' => $requests,
         ]);
     }
@@ -165,9 +177,17 @@ class BoardController extends Controller
 
         $target = $validated['status'];
 
-        DB::transaction(function () use ($order, $target, $validated, $request, $settlement, $loyalty): void {
-            $lockedOrder = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
-            $session = TableSession::query()->whereKey($lockedOrder->table_session_id)->lockForUpdate()->firstOrFail();
+        $alreadyAtTarget = false;
+
+        DB::transaction(function () use ($order, $target, $validated, $request, $settlement, $loyalty, &$alreadyAtTarget): void {
+            $session = TableSession::query()->whereKey($order->table_session_id)->lockForUpdate()->firstOrFail();
+            $lockedOrder = Order::query()->whereKey($order->id)->where('table_session_id', $session->id)->lockForUpdate()->firstOrFail();
+
+            if ($lockedOrder->status === $target) {
+                $alreadyAtTarget = true;
+
+                return;
+            }
 
             $allowed = match ($target) {
                 Order::STATUS_ACCEPTED => [Order::STATUS_PENDING],
@@ -236,7 +256,8 @@ class BoardController extends Controller
         if ($request->expectsJson()) {
             return response()->json([
                 'ok' => true,
-                'message' => match ($target) {
+                'idempotent' => $alreadyAtTarget,
+                'message' => $alreadyAtTarget ? 'Sipariş durumu zaten güncel.' : match ($target) {
                     Order::STATUS_ACCEPTED => 'Sipariş hazırlanmaya alındı.',
                     Order::STATUS_READY => 'Sipariş hazır olarak işaretlendi.',
                     Order::STATUS_SERVED => 'Sipariş teslim edildi.',
@@ -250,21 +271,119 @@ class BoardController extends Controller
 
     public function resolveServiceRequest(Request $request, ServiceRequest $serviceRequest): JsonResponse|RedirectResponse
     {
+        abort_unless($request->user()->hasRole(User::ROLE_WAITER, User::ROLE_CAFE_OWNER, User::ROLE_CAFE_MANAGER), 403);
         Gate::authorize('view', $serviceRequest->branch);
 
-        if ($serviceRequest->status === ServiceRequest::STATUS_OPEN) {
-            $serviceRequest->forceFill([
+        $isManager = $request->user()->hasRole(User::ROLE_CAFE_OWNER, User::ROLE_CAFE_MANAGER);
+        $resolved = DB::transaction(function () use ($request, $serviceRequest, $isManager): bool {
+            $lockedRequest = ServiceRequest::query()->whereKey($serviceRequest->id)->lockForUpdate()->firstOrFail();
+
+            if ($lockedRequest->status !== ServiceRequest::STATUS_OPEN) {
+                return false;
+            }
+
+            if (! $isManager && $lockedRequest->claimed_by !== $request->user()->id) {
+                abort(403, 'Önce çağrıyı üzerinize alın.');
+            }
+
+            $claimedBy = $lockedRequest->claimed_by;
+            $lockedRequest->forceFill([
                 'status' => ServiceRequest::STATUS_RESOLVED,
                 'resolved_by' => $request->user()->id,
                 'resolved_at' => now(),
+                'claimed_by' => null,
+                'claimed_at' => null,
             ])->save();
-        }
+
+            ActivityLog::query()->create([
+                'cafe_id' => $lockedRequest->branch->cafe_id,
+                'branch_id' => $lockedRequest->branch_id,
+                'user_id' => $request->user()->id,
+                'action' => 'service_request.resolved',
+                'subject_type' => ServiceRequest::class,
+                'subject_id' => $lockedRequest->id,
+                'metadata' => ['claimed_by' => $claimedBy, 'manager_override' => $isManager],
+                'ip_address' => $request->ip(),
+            ]);
+
+            return true;
+        });
 
         if ($request->expectsJson()) {
-            return response()->json(['ok' => true, 'message' => 'Çağrı kapatıldı.']);
+            return response()->json(['ok' => true, 'message' => $resolved ? 'Çağrı tamamlandı.' : 'Çağrı zaten tamamlanmış.']);
         }
 
-        return back()->with('status', 'Çağrı kapatıldı.');
+        return back()->with('status', 'Çağrı tamamlandı.');
+    }
+
+    public function claimServiceRequest(Request $request, ServiceRequest $serviceRequest): JsonResponse
+    {
+        abort_unless($request->user()->hasRole(User::ROLE_WAITER), 403);
+        Gate::authorize('view', $serviceRequest->branch);
+
+        $claimed = DB::transaction(function () use ($request, $serviceRequest): bool {
+            $lockedRequest = ServiceRequest::query()->whereKey($serviceRequest->id)->lockForUpdate()->firstOrFail();
+            abort_unless($lockedRequest->status === ServiceRequest::STATUS_OPEN, 409, 'Çağrı artık açık değil.');
+
+            if ($lockedRequest->claimed_by !== null && $lockedRequest->claimed_by !== $request->user()->id) {
+                $ownerName = $lockedRequest->claimedBy?->name ?? 'başka bir çalışan';
+                abort(409, "Bu çağrıyla {$ownerName} ilgileniyor.");
+            }
+
+            if ($lockedRequest->claimed_by === $request->user()->id) {
+                return false;
+            }
+
+            $lockedRequest->forceFill([
+                'claimed_by' => $request->user()->id,
+                'claimed_at' => now(),
+            ])->save();
+
+            ActivityLog::query()->create([
+                'cafe_id' => $lockedRequest->branch->cafe_id,
+                'branch_id' => $lockedRequest->branch_id,
+                'user_id' => $request->user()->id,
+                'action' => 'service_request.claimed',
+                'subject_type' => ServiceRequest::class,
+                'subject_id' => $lockedRequest->id,
+                'metadata' => [],
+                'ip_address' => $request->ip(),
+            ]);
+
+            return true;
+        });
+
+        return response()->json([
+            'ok' => true,
+            'message' => $claimed ? 'Çağrı üzerinize alındı.' : 'Bu çağrı zaten sizde.',
+        ]);
+    }
+
+    public function releaseServiceRequest(Request $request, ServiceRequest $serviceRequest): JsonResponse
+    {
+        abort_unless($request->user()->hasRole(User::ROLE_WAITER), 403);
+        Gate::authorize('view', $serviceRequest->branch);
+
+        DB::transaction(function () use ($request, $serviceRequest): void {
+            $lockedRequest = ServiceRequest::query()->whereKey($serviceRequest->id)->lockForUpdate()->firstOrFail();
+            abort_unless($lockedRequest->status === ServiceRequest::STATUS_OPEN, 409, 'Çağrı artık açık değil.');
+            abort_unless($lockedRequest->claimed_by === $request->user()->id, 403, 'Bu çağrı başka bir çalışana ait.');
+
+            $lockedRequest->forceFill(['claimed_by' => null, 'claimed_at' => null])->save();
+
+            ActivityLog::query()->create([
+                'cafe_id' => $lockedRequest->branch->cafe_id,
+                'branch_id' => $lockedRequest->branch_id,
+                'user_id' => $request->user()->id,
+                'action' => 'service_request.released',
+                'subject_type' => ServiceRequest::class,
+                'subject_id' => $lockedRequest->id,
+                'metadata' => [],
+                'ip_address' => $request->ip(),
+            ]);
+        });
+
+        return response()->json(['ok' => true, 'message' => 'Çağrı tekrar ekibe açıldı.']);
     }
 
     /** @return Collection<int, Branch> */

@@ -49,6 +49,22 @@
         </div>
     @endif
 
+    @if ($session->status === 'open')
+        <section class="mt-5 flex flex-col gap-3 rounded-2xl border {{ $session->qr_ordering_enabled ? 'border-success/20 bg-success-soft' : 'border-amber/40 bg-amber-soft' }} p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+                <p class="text-sm font-bold {{ $session->qr_ordering_enabled ? 'text-success' : 'text-[#8a5a14]' }}">QR siparişi {{ $session->qr_ordering_enabled ? 'açık' : 'kapalı' }}</p>
+                <p class="mt-1 text-xs leading-5 text-muted">Masa boşaldığında QR siparişini tek dokunuşla durdurun. Adisyon açık kalır; yeniden oturulduğunda tekrar açabilirsiniz.</p>
+            </div>
+            <form method="post" action="{{ route('staff.sessions.qr-ordering.update', $session->id) }}">
+                @csrf
+                <input type="hidden" name="enabled" value="{{ $session->qr_ordering_enabled ? '0' : '1' }}">
+                <button class="btn {{ $session->qr_ordering_enabled ? 'btn-secondary' : 'btn-primary' }} w-full sm:w-auto" data-submit-once>
+                    {{ $session->qr_ordering_enabled ? 'QR siparişini durdur' : 'QR siparişini yeniden aç' }}
+                </button>
+            </form>
+        </section>
+    @endif
+
     <div class="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,.9fr)]">
         <div class="space-y-5">
             <section class="card p-5">
@@ -101,6 +117,34 @@
                             @if ($order->customer_note)
                                 <p class="mt-2 rounded-xl bg-amber-soft px-3 py-2 text-xs font-semibold text-[#8a5a14]">Sipariş notu: {{ $order->customer_note }}</p>
                             @endif
+
+                            @if ($session->status === 'open' && ! $activePayments->isNotEmpty() && $order->status !== 'paid' && $order->status !== 'cancelled' && (float) $order->discount_total === 0.0 && $order->coupon_id === null && $order->loyalty_campaign_id === null)
+                                <details class="mt-3 rounded-xl border border-line bg-paper p-3">
+                                    <summary class="cursor-pointer text-xs font-bold text-forest">Siparişi düzelt</summary>
+                                    <form method="post" action="{{ route('staff.orders.correct', $order) }}" class="mt-3 space-y-3">
+                                        @csrf
+                                        <div class="space-y-2">
+                                            @foreach ($order->items as $item)
+                                                <label class="flex items-center justify-between gap-3 text-xs">
+                                                    <span class="min-w-0 font-semibold text-ink">{{ $item->name_snapshot }} <span class="text-muted">· ₺{{ number_format((float) $item->unit_price, 2, ',', '.') }}</span></span>
+                                                    <span class="flex shrink-0 items-center gap-2 text-muted">Adet
+                                                        <input type="number" name="items[{{ $item->id }}][quantity]" min="1" max="20" required value="{{ $item->quantity }}" class="input w-16 px-2 py-2 text-center font-bold">
+                                                    </span>
+                                                </label>
+                                            @endforeach
+                                        </div>
+                                        <label class="block">
+                                            <span class="label">Sipariş notu</span>
+                                            <input name="customer_note" maxlength="500" value="{{ $order->customer_note }}" class="input" placeholder="İsteğe bağlı not">
+                                        </label>
+                                        <label class="block">
+                                            <span class="label">Düzeltme nedeni</span>
+                                            <input name="reason" minlength="3" maxlength="160" required class="input" placeholder="Örn. adet yanlış girildi">
+                                        </label>
+                                        <button class="btn btn-secondary btn-sm w-full" data-submit-once>Siparişi kaydet</button>
+                                    </form>
+                                </details>
+                            @endif
                         </article>
                     @empty
                         <p class="rounded-2xl border border-dashed border-line px-4 py-8 text-center text-sm font-medium text-muted">Henüz sipariş yok.</p>
@@ -112,7 +156,7 @@
                 <div class="flex flex-wrap items-center justify-between gap-2">
                     <div>
                         <h2 class="font-display text-2xl font-semibold text-ink">Adisyona ürün ekle</h2>
-                        <p class="mt-0.5 text-xs font-medium text-muted">Seçilen ürünler güncel şube fiyatıyla servis edilmiş olarak kaydedilir.</p>
+                        <p class="mt-0.5 text-xs font-medium text-muted">Müşterinin seçtiklerini girin. Normal sipariş mutfağa düşer; isterseniz servisi tamamlananları doğrudan adisyona ekleyin.</p>
                     </div>
                     <span class="badge badge-neutral">{{ $categories->sum(fn ($category) => $category->products->count()) }} ürün</span>
                 </div>
@@ -195,14 +239,30 @@
 
                     <p data-sparse-items-error class="hidden text-xs font-semibold text-danger" role="alert"></p>
 
-                    <button
-                        @disabled($session->status !== 'open' || $categories->sum(fn ($category) => $category->products->count()) === 0)
-                        class="btn btn-primary w-full"
-                        data-submit-once
-                    >
-                        <x-ui.icon name="plus" class="size-4" />
-                        Seçilenleri adisyona ekle
-                    </button>
+                    <div class="grid gap-2 sm:grid-cols-2">
+                        <button
+                            type="submit"
+                            name="mode"
+                            value="send"
+                            @disabled($session->status !== 'open' || $categories->sum(fn ($category) => $category->products->count()) === 0)
+                            class="btn btn-primary w-full"
+                            data-submit-once
+                        >
+                            <x-ui.icon name="send" class="size-4" />
+                            Siparişi mutfağa gönder
+                        </button>
+                        <button
+                            type="submit"
+                            name="mode"
+                            value="served"
+                            @disabled($session->status !== 'open' || $categories->sum(fn ($category) => $category->products->count()) === 0)
+                            class="btn btn-secondary w-full"
+                            data-submit-once
+                        >
+                            <x-ui.icon name="check" class="size-4" />
+                            Servis edileni adisyona ekle
+                        </button>
+                    </div>
                 </form>
             </section>
         </div>
@@ -319,12 +379,15 @@
                             <p class="mt-1 text-[11px] font-medium text-muted">{{ $payment->recorded_at?->timezone('Europe/Istanbul')->format('H:i') }} · {{ $payment->recorder?->name ?? 'Personel' }}</p>
                             @if ($payment->voided_at)
                                 <p class="mt-1 text-xs font-semibold text-danger">İptal edildi · {{ $payment->void_reason }}</p>
-                            @elseif ($session->status === 'open')
+                            @elseif ($session->status === 'open' || $payment->recorded_by === auth()->id() || auth()->user()?->hasRole(\App\Models\User::ROLE_CAFE_OWNER, \App\Models\User::ROLE_CAFE_MANAGER))
                                 <form method="post" action="{{ route('staff.sessions.payments.void', [$session->id, $payment->id]) }}" class="mt-2 flex gap-2" data-confirm="Bu ödeme kaydını iptal etmek istiyor musunuz?">
                                     @csrf
-                                    <input name="reason" required minlength="3" maxlength="160" placeholder="İptal gerekçesi" class="input min-w-0 flex-1 px-3 py-2 text-xs">
-                                    <button class="btn btn-secondary btn-sm text-danger">İptal</button>
+                                    <input name="reason" required minlength="3" maxlength="160" placeholder="Düzeltme nedeni" class="input min-w-0 flex-1 px-3 py-2 text-xs">
+                                    <button class="btn btn-secondary btn-sm text-danger">Kaydı düzelt</button>
                                 </form>
+                                @if ($session->status === 'closed')
+                                    <p class="mt-1 text-[10px] leading-4 text-muted">Düzeltme kaydı geçmişte kalır. Gerçek POS iadesi gerekiyorsa ayrıca POS cihazından yapın.</p>
+                                @endif
                             @endif
                         </div>
                     @empty

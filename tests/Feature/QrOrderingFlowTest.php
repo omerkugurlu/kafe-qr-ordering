@@ -41,6 +41,96 @@ class QrOrderingFlowTest extends TestCase
         $this->assertSame('Filtre kahve', $order->items->first()->name_snapshot);
     }
 
+    public function test_closed_static_qr_cannot_create_a_new_table_session_or_order(): void
+    {
+        [, , $table, $token, $product] = $this->createCafeTableAndProduct();
+        $session = TableSession::query()->where('dining_table_id', $table->id)->firstOrFail();
+        $session->forceFill(['status' => TableSession::STATUS_CLOSED, 'closed_at' => now()])->save();
+
+        $this->postJson(route('customer.orders.store', $token), [
+            'items' => [$product->id => 1],
+        ])->assertUnprocessable()
+            ->assertJsonPath('message', 'Bu masa şu anda QR siparişine açık değil. Garsondan masayı açmasını isteyin.');
+
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('table_sessions', 1);
+    }
+
+    public function test_waiter_can_pause_qr_orders_without_closing_the_bill(): void
+    {
+        [$cafe, $branch, $table, $token, $product] = $this->createCafeTableAndProduct();
+        $session = TableSession::query()->where('dining_table_id', $table->id)->firstOrFail();
+        $waiter = User::factory()->create([
+            'role' => User::ROLE_WAITER,
+            'cafe_id' => $cafe->id,
+            'is_active' => true,
+        ]);
+        $branch->staff()->attach($waiter->id);
+
+        $this->actingAs($waiter)->post(route('staff.sessions.qr-ordering.update', $session->id), ['enabled' => 0])
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('table_sessions', [
+            'id' => $session->id,
+            'status' => TableSession::STATUS_OPEN,
+            'qr_ordering_enabled' => false,
+        ]);
+
+        $this->get(route('customer.menu', $token))
+            ->assertOk()
+            ->assertSee(__('customer.ordering_unavailable'));
+
+        $this->postJson(route('customer.orders.store', $token), [
+            'items' => [$product->id => 1],
+        ])->assertUnprocessable()
+            ->assertJsonPath('message', 'Bu masa şu anda QR siparişine açık değil. Garsondan masayı açmasını isteyin.');
+
+        $this->actingAs($waiter)->post(route('staff.sessions.qr-ordering.update', $session->id), ['enabled' => 1])
+            ->assertRedirect();
+
+        $this->postJson(route('customer.orders.store', $token), [
+            'items' => [$product->id => 1],
+        ])->assertOk();
+    }
+
+    public function test_table_accepts_only_one_unacknowledged_qr_order_at_a_time(): void
+    {
+        [$cafe, $branch, , $token, $product] = $this->createCafeTableAndProduct();
+        $payload = ['lines' => [['product_id' => $product->id, 'quantity' => 1]]];
+
+        $this->postJson(route('customer.orders.store', $token), $payload)
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        $this->postJson(route('customer.orders.store', $token), $payload)
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'Bu masa için önceki siparişin garson tarafından alınmasını bekleyin.');
+
+        $this->get(route('customer.menu', $token))
+            ->assertOk()
+            ->assertSee(__('customer.ordering_wait'));
+        $this->getJson(route('customer.status', $token))
+            ->assertOk()
+            ->assertJsonPath('session.qr_order_pending', true);
+
+        $order = Order::query()->firstOrFail();
+        $waiter = User::factory()->create([
+            'role' => User::ROLE_WAITER,
+            'cafe_id' => $cafe->id,
+            'is_active' => true,
+        ]);
+        $branch->staff()->attach($waiter->id);
+
+        $this->actingAs($waiter)->postJson(route('staff.orders.status', $order), ['status' => Order::STATUS_ACCEPTED])
+            ->assertOk();
+
+        $this->postJson(route('customer.orders.store', $token), $payload)
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        $this->assertDatabaseCount('orders', 2);
+    }
+
     public function test_order_rejects_products_from_another_cafe(): void
     {
         [, , , $token] = $this->createCafeTableAndProduct();
@@ -148,9 +238,24 @@ class QrOrderingFlowTest extends TestCase
 
         $this->postJson(route('customer.call', $token), ['type' => ServiceRequest::TYPE_BILL])
             ->assertUnprocessable()
-            ->assertJsonPath('code', 'order_not_accepted');
+            ->assertJsonPath('code', 'table_session_closed')
+            ->assertJsonPath('message', __('customer.service_unavailable'));
 
         $this->assertDatabaseCount('service_requests', 1);
+    }
+
+    public function test_static_qr_cannot_call_waiter_after_table_session_closes(): void
+    {
+        [, , $table, $token] = $this->createCafeTableAndProduct();
+        TableSession::query()->where('dining_table_id', $table->id)
+            ->update(['status' => TableSession::STATUS_CLOSED, 'closed_at' => now()]);
+
+        $this->postJson(route('customer.call', $token), ['type' => ServiceRequest::TYPE_WAITER])
+            ->assertUnprocessable()
+            ->assertJsonPath('code', 'table_session_closed')
+            ->assertJsonPath('message', __('customer.service_unavailable'));
+
+        $this->assertDatabaseCount('service_requests', 0);
     }
 
     public function test_table_qr_is_server_generated_svg_and_rotation_revokes_previous_token(): void
@@ -180,6 +285,12 @@ class QrOrderingFlowTest extends TestCase
         $category = $cafe->categories()->create(['name' => 'Kahveler', 'is_active' => true]);
         $product = $cafe->products()->create(['category_id' => $category->id, 'name' => 'Filtre kahve', 'price' => '125.00', 'is_available' => true]);
         $table = DiningTable::createWithToken(['branch_id' => $branch->id, 'name' => 'Masa 4', 'is_active' => true]);
+        TableSession::query()->create([
+            'branch_id' => $branch->id,
+            'dining_table_id' => $table->id,
+            'status' => TableSession::STATUS_OPEN,
+            'opened_at' => now(),
+        ]);
 
         return [$cafe, $branch, $table, $table->token(), $product];
     }

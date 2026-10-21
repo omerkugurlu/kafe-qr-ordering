@@ -121,35 +121,61 @@ function kitchenOrderCard(order) {
         </article>`;
 }
 
-function tableCard(table, kitchen = false) {
+function tableCard(table, kitchen = false, openTableUrl = null) {
     if (table.is_open) {
         return `
             <a href="${escapeHtml(table.session_url ?? '#')}" class="group rounded-2xl border border-forest/15 bg-sage/40 p-2.5 transition hover:border-forest/40">
                 <p class="truncate text-xs font-bold text-forest">${escapeHtml(table.name)}</p>
                 <p class="mt-0.5 text-[10px] font-semibold text-forest/70">${table.active_orders} aktif · ${money(table.due_cents)}</p>
+                <p class="mt-1 text-[10px] font-semibold ${table.qr_ordering_enabled ? 'text-success' : 'text-terracotta'}">QR ${table.qr_ordering_enabled ? 'açık' : 'kapalı'}</p>
             </a>`;
+    }
+
+    if (table.last_session_url) {
+        return `
+            <div class="rounded-2xl border border-line bg-paper p-2.5 transition hover:border-forest/30 hover:bg-cream/70">
+                <p class="truncate text-xs font-bold text-ink">${escapeHtml(table.name)}</p>
+                <a href="${escapeHtml(table.last_session_url)}" class="mt-0.5 block text-[10px] font-semibold text-muted hover:text-forest">Son adisyon · ${escapeHtml(table.last_session_opened_label ?? '')}</a>
+                ${openTableUrl
+                    ? `<button type="button" class="mt-2 w-full rounded-xl bg-forest px-2 py-1.5 text-[10px] font-bold text-white" data-open-table="${table.id}">Yeni adisyon aç</button>`
+                    : '<span class="mt-1 block text-[10px] font-bold text-forest">Geçmişi gör / düzelt</span>'}
+            </div>`;
     }
 
     return `
         <div class="rounded-2xl border border-dashed border-line px-2.5 py-2.5">
             <p class="truncate text-xs font-bold text-muted">${escapeHtml(table.name)}</p>
-            <p class="mt-0.5 text-[10px] font-semibold text-muted/60">Boş</p>
+            ${openTableUrl
+                ? `<button type="button" class="mt-1 w-full rounded-xl bg-forest px-2 py-1.5 text-[10px] font-bold text-white" data-open-table="${table.id}">Masayı aç / sipariş al</button>`
+                : '<p class="mt-0.5 text-[10px] font-semibold text-muted/60">Boş</p>'}
         </div>`;
 }
 
 function requestCard(request) {
+    const owner = request.claimed_by_name
+        ? `<p class="mt-1 text-[11px] font-bold text-forest">${escapeHtml(request.claimed_by_name)} ilgileniyor</p>`
+        : '';
+    const action = request.can_manage_requests
+        ? `<button type="button" class="mt-2 w-full rounded-xl bg-paper px-3 py-1.5 text-xs font-bold text-[#8a5a14]" data-resolve-request="${request.id}">Çağrıyı tamamla</button>`
+        : request.is_claimed_by_me
+            ? `<div class="mt-2 grid grid-cols-2 gap-2"><button type="button" class="rounded-xl bg-forest px-3 py-1.5 text-xs font-bold text-white" data-resolve-request="${request.id}">Tamamlandı</button><button type="button" class="rounded-xl bg-paper px-3 py-1.5 text-xs font-bold text-muted" data-release-request="${request.id}">Bırak</button></div>`
+            : request.claimed_by
+                ? '<p class="mt-2 rounded-xl bg-paper/70 px-3 py-1.5 text-center text-xs font-semibold text-muted">Diğer garson ilgileniyor</p>'
+                : request.can_claim_requests
+                    ? `<button type="button" class="mt-2 w-full rounded-xl bg-paper px-3 py-1.5 text-xs font-bold text-[#8a5a14]" data-claim-request="${request.id}">Alıyorum</button>`
+                    : '<p class="mt-2 rounded-xl bg-paper/70 px-3 py-1.5 text-center text-xs font-semibold text-muted">Garson ekibi ilgilenecek</p>';
+
     return `
         <div class="rounded-2xl border border-amber/40 bg-amber-soft p-3">
             <div class="flex items-start justify-between gap-2">
                 <div>
                     <p class="text-sm font-bold text-[#8a5a14]">${escapeHtml(request.table ?? 'Masa')} · ${escapeHtml(request.type_label)}</p>
                     <p class="mt-0.5 text-[11px] font-semibold text-[#8a5a14]/70">${escapeHtml(request.created_label ?? '')}</p>
+                    ${owner}
                 </div>
-                <button type="button" class="grid size-8 shrink-0 place-items-center rounded-full bg-[#8a5a14]/10 text-[#8a5a14] transition hover:bg-[#8a5a14]/20" data-resolve-request="${request.id}" aria-label="Çağrıyı kapat" title="Çağrıyı kapat">
-                    <svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
-                </button>
             </div>
-            <button type="button" class="mt-2 w-full rounded-xl bg-paper px-3 py-1.5 text-xs font-bold text-[#8a5a14]" data-resolve-request="${request.id}">Görüldü</button>
+            ${request.note ? `<p class="mt-2 text-xs text-[#8a5a14]">${escapeHtml(request.note)}</p>` : ''}
+            ${action}
         </div>`;
 }
 
@@ -158,7 +184,7 @@ function renderBoard(root, payload) {
     $$('[data-kpi]', root).forEach((element) => {
         const key = element.dataset.kpi;
         const value = summary[key];
-        element.textContent = key === 'paid_today' ? value : String(value ?? 0);
+        element.textContent = String(value ?? 0);
     });
 
     $$('[data-lane-count]', root).forEach((element) => {
@@ -192,7 +218,8 @@ function renderBoard(root, payload) {
 
     const tablesRoot = root.querySelector('[data-tables]');
     if (tablesRoot) {
-        tablesRoot.innerHTML = payload.tables.map((table) => tableCard(table)).join('');
+        const openTableUrl = payload.can_open_tables ? root.dataset.openTableUrl : null;
+        tablesRoot.innerHTML = payload.tables.map((table) => tableCard(table, false, openTableUrl)).join('');
     }
 }
 
@@ -233,6 +260,9 @@ function initBoard(root) {
     const endpoint = root.dataset.endpoint;
     const statusUrl = root.dataset.statusUrl;
     const resolveUrl = root.dataset.resolveUrl;
+    const claimUrl = root.dataset.claimUrl;
+    const releaseUrl = root.dataset.releaseUrl;
+    const openTableUrl = root.dataset.openTableUrl;
     const dialog = document.querySelector('[data-cancel-dialog]');
     let previousPending = null;
 
@@ -301,6 +331,7 @@ function initBoard(root) {
                 await postStatus(orderId, status);
                 toast('Sipariş güncellendi.', 'success');
             } catch (error) {
+                await refresh().catch(() => {});
                 toast(errorMessage(error), 'error');
                 action.disabled = false;
             }
@@ -315,6 +346,48 @@ function initBoard(root) {
                 await refresh();
             } catch (error) {
                 toast(errorMessage(error), 'error');
+            }
+            return;
+        }
+
+        const claim = event.target.closest('[data-claim-request]');
+        if (claim && claimUrl) {
+            claim.disabled = true;
+            try {
+                await apiFetch(claimUrl.replace('__ID__', claim.dataset.claimRequest), { method: 'POST' });
+                await refresh();
+                toast('Çağrı üzerinize alındı.', 'success');
+            } catch (error) {
+                await refresh().catch(() => {});
+                toast(errorMessage(error), 'error');
+            }
+            return;
+        }
+
+        const release = event.target.closest('[data-release-request]');
+        if (release && releaseUrl) {
+            release.disabled = true;
+            try {
+                await apiFetch(releaseUrl.replace('__ID__', release.dataset.releaseRequest), { method: 'POST' });
+                await refresh();
+                toast('Çağrı ekibe açıldı.', 'success');
+            } catch (error) {
+                await refresh().catch(() => {});
+                toast(errorMessage(error), 'error');
+            }
+            return;
+        }
+
+        const openTable = event.target.closest('[data-open-table]');
+        if (openTable && openTableUrl) {
+            openTable.disabled = true;
+            try {
+                const response = await apiFetch(openTableUrl.replace('__ID__', openTable.dataset.openTable), { method: 'POST' });
+                window.location.assign(response.url);
+            } catch (error) {
+                toast(errorMessage(error), 'error');
+                openTable.disabled = false;
+                await refresh().catch(() => {});
             }
             return;
         }
@@ -406,6 +479,7 @@ function initKitchen(root) {
             toast(action.dataset.status === 'ready' ? 'Sipariş hazır.' : 'Sipariş kabul edildi.', 'success');
             await refresh();
         } catch (error) {
+            await refresh().catch(() => {});
             toast(errorMessage(error), 'error');
             action.disabled = false;
         }

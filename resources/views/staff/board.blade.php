@@ -9,6 +9,11 @@
         data-endpoint="{{ route('staff.board.data', $branch) }}"
         data-status-url="{{ route('staff.orders.status', ['order' => '__ID__']) }}"
         data-resolve-url="{{ route('staff.service-requests.resolve', ['serviceRequest' => '__ID__']) }}"
+        data-claim-url="{{ route('staff.service-requests.claim', ['serviceRequest' => '__ID__']) }}"
+        data-release-url="{{ route('staff.service-requests.release', ['serviceRequest' => '__ID__']) }}"
+        @if (auth()->user()?->hasRole('waiter', 'cafe_owner', 'cafe_manager'))
+            data-open-table-url="{{ route('staff.sessions.open-table', ['branch' => $branch, 'table' => '__ID__']) }}"
+        @endif
     >
         <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
             <div class="flex flex-wrap items-center gap-2">
@@ -38,7 +43,7 @@
             </div>
         </div>
 
-        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <article class="kpi">
                 <div class="flex items-center justify-between">
                     <p class="text-[11px] font-bold uppercase tracking-[.16em] text-muted">Bekleyen</p>
@@ -70,14 +75,6 @@
                 </div>
                 <p class="mt-3 font-display text-3xl font-semibold text-ink" data-kpi="open_tables">0</p>
                 <p class="mt-1 text-xs font-medium text-muted">Adisyonu açık</p>
-            </article>
-            <article class="kpi bg-forest text-white">
-                <div class="flex items-center justify-between">
-                    <p class="text-[11px] font-bold uppercase tracking-[.16em] text-white/60">Bugün tahsilat</p>
-                    <span class="grid size-9 place-items-center rounded-full bg-white/10 text-amber"><x-ui.icon name="banknote" class="size-4" /></span>
-                </div>
-                <p class="mt-3 font-display text-2xl font-semibold" data-kpi="paid_today">₺0,00</p>
-                <p class="mt-1 text-xs font-medium text-white/60">Nakit + kart toplamı</p>
             </article>
         </div>
 

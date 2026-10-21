@@ -174,6 +174,11 @@
         @endif
 
         <div id="session-banner" hidden class="mt-3 border-y border-sage-deep/60 bg-sage/50"></div>
+        <div id="ordering-status-banner" @if ($menuData['ordering_available']) hidden @endif class="mx-auto mt-3 max-w-6xl px-4 sm:px-6" role="status" aria-live="polite">
+            <div class="rounded-2xl border border-amber/40 bg-amber-soft px-4 py-3 text-sm font-semibold text-[#8a5a14]">
+                {{ ($session['qr_order_pending'] ?? false) ? __('customer.ordering_wait') : __('customer.ordering_unavailable') }}
+            </div>
+        </div>
 
         <div class="sticky top-0 z-30 mt-4 border-y border-line/70 bg-cream/90 backdrop-blur-xl">
             <div class="mx-auto max-w-6xl px-4 py-3 sm:px-6">

@@ -137,6 +137,26 @@ class OrderController extends Controller
                 throw ValidationException::withMessages(['items' => 'Bu müşteri hesabı bu kafede sipariş vermek için kullanılamaz.']);
             }
 
+            $session = TableSession::query()
+                ->where('dining_table_id', $lockedTable->id)
+                ->where('status', TableSession::STATUS_OPEN)
+                ->lockForUpdate()
+                ->latest('id')
+                ->first();
+
+            if ($session === null || ! $session->qr_ordering_enabled) {
+                throw ValidationException::withMessages(['items' => 'Bu masa şu anda QR siparişine açık değil. Garsondan masayı açmasını isteyin.']);
+            }
+
+            $unacknowledgedQrOrderExists = $session->orders()
+                ->where('source', 'qr')
+                ->where('status', Order::STATUS_PENDING)
+                ->exists();
+
+            if ($unacknowledgedQrOrderExists) {
+                throw ValidationException::withMessages(['items' => 'Bu masa için önceki siparişin garson tarafından alınmasını bekleyin.']);
+            }
+
             $branchMenuId = $lockedBranch->uses_shared_menu ? null : $lockedBranch->id;
             $productIds = $hasLines
                 ? $lines->pluck('product_id')->unique()->values()
@@ -169,20 +189,6 @@ class OrderController extends Controller
             if ($products->count() !== $productIds->count() || $products->contains(fn (MenuProduct $product): bool => ! $product->isAvailableAt($lockedBranch))) {
                 throw ValidationException::withMessages(['items' => 'Menüdeki ürünlerden biri artık siparişe açık değil. Menüyü yenileyip tekrar deneyin.']);
             }
-
-            $session = TableSession::query()
-                ->where('dining_table_id', $lockedTable->id)
-                ->where('status', TableSession::STATUS_OPEN)
-                ->lockForUpdate()
-                ->latest('id')
-                ->first();
-
-            $session ??= TableSession::query()->create([
-                'branch_id' => $lockedBranch->id,
-                'dining_table_id' => $lockedTable->id,
-                'status' => TableSession::STATUS_OPEN,
-                'opened_at' => now(),
-            ]);
 
             $subtotalCents = 0;
             $snapshots = [];
@@ -463,33 +469,46 @@ class OrderController extends Controller
                 ->lockForUpdate()
                 ->first();
 
+            if ($session === null) {
+                return ['active_session' => false, 'eligible' => false, 'duplicate' => false];
+            }
+
             if ($validated['type'] === ServiceRequest::TYPE_BILL
-                && ($session === null || ! $session->orders()->whereIn('status', Order::BILL_REQUEST_ELIGIBLE_STATUSES)->exists())) {
-                return ['eligible' => false, 'duplicate' => false];
+                && ! $session->orders()->whereIn('status', Order::BILL_REQUEST_ELIGIBLE_STATUSES)->exists()) {
+                return ['active_session' => true, 'eligible' => false, 'duplicate' => false];
             }
 
             $duplicate = ServiceRequest::query()
                 ->where('dining_table_id', $lockedTable->id)
+                ->where('table_session_id', $session->id)
                 ->where('type', $validated['type'])
                 ->where('status', ServiceRequest::STATUS_OPEN)
                 ->where('created_at', '>=', now()->subMinutes(2))
                 ->exists();
 
             if ($duplicate) {
-                return ['eligible' => true, 'duplicate' => true];
+                return ['active_session' => true, 'eligible' => true, 'duplicate' => true];
             }
 
             ServiceRequest::query()->create([
                 'branch_id' => $lockedTable->branch_id,
                 'dining_table_id' => $lockedTable->id,
-                'table_session_id' => $session?->id,
+                'table_session_id' => $session->id,
                 'type' => $validated['type'],
                 'status' => ServiceRequest::STATUS_OPEN,
                 'note' => $validated['note'] ?? null,
             ]);
 
-            return ['eligible' => true, 'duplicate' => false];
+            return ['active_session' => true, 'eligible' => true, 'duplicate' => false];
         });
+
+        if (! $result['active_session']) {
+            return response()->json([
+                'ok' => false,
+                'code' => 'table_session_closed',
+                'message' => __('customer.service_unavailable'),
+            ], 422);
+        }
 
         if (! $result['eligible']) {
             return response()->json([

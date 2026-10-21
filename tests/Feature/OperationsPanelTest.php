@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\ActivityLog;
 use App\Models\Branch;
 use App\Models\Cafe;
 use App\Models\Coupon;
@@ -32,6 +33,8 @@ class OperationsPanelTest extends TestCase
             ->assertOk()
             ->assertJsonPath('summary.pending', 1)
             ->assertJsonPath('summary.open_tables', 1)
+            ->assertJsonMissingPath('summary.paid_today')
+            ->assertJsonMissingPath('summary.paid_today_cents')
             ->assertJsonPath('orders.0.number', $order->order_number)
             ->assertJsonPath('orders.0.table_name', 'Masa 1')
             ->assertJsonPath('orders.0.due_cents', 25000);
@@ -83,7 +86,104 @@ class OperationsPanelTest extends TestCase
         $this->actingAs($kitchen)->getJson(route('staff.board.data', $branch))
             ->assertOk()
             ->assertJsonPath('summary.accepted', 1)
+            ->assertJsonMissingPath('summary.paid_today')
+            ->assertJsonMissingPath('summary.paid_today_cents')
             ->assertJsonPath('orders.0.status', Order::STATUS_ACCEPTED);
+    }
+
+    public function test_repeating_the_same_order_status_update_is_idempotent(): void
+    {
+        [$cafe, $branch, , $order] = $this->openTable();
+        $waiter = $this->staffUser(User::ROLE_WAITER, $cafe, $branch);
+
+        $this->actingAs($waiter)->postJson(route('staff.orders.status', $order), [
+            'status' => Order::STATUS_ACCEPTED,
+        ])->assertOk();
+
+        $this->actingAs($waiter)->postJson(route('staff.orders.status', $order), [
+            'status' => Order::STATUS_READY,
+        ])->assertOk()->assertJsonPath('ok', true);
+
+        $this->actingAs($waiter)->postJson(route('staff.orders.status', $order), [
+            'status' => Order::STATUS_READY,
+        ])->assertOk()->assertJsonPath('ok', true);
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'status' => Order::STATUS_READY,
+        ]);
+        $this->assertSame(1, ActivityLog::query()
+            ->where('subject_type', Order::class)
+            ->where('subject_id', $order->id)
+            ->where('action', 'order.'.Order::STATUS_READY)
+            ->count());
+    }
+
+    public function test_staff_board_links_to_the_last_closed_table_session(): void
+    {
+        [$cafe, $branch, $session] = $this->openTable();
+        $session->forceFill(['status' => TableSession::STATUS_CLOSED, 'closed_at' => now()])->save();
+        $waiter = $this->staffUser(User::ROLE_WAITER, $cafe, $branch);
+
+        $this->actingAs($waiter)->getJson(route('staff.board.data', $branch))
+            ->assertOk()
+            ->assertJsonPath('tables.0.is_open', false)
+            ->assertJsonPath('tables.0.last_session_url', route('staff.sessions.show', $session->id))
+            ->assertJsonPath('tables.0.last_session_status', TableSession::STATUS_CLOSED)
+            ->assertJsonPath('can_open_tables', true);
+
+        $this->actingAs($waiter)->get(route('staff.sessions.show', $session->id))->assertOk();
+
+        $this->actingAs($waiter)->postJson(route('staff.sessions.open-table', [$branch, $session->diningTable]))
+            ->assertOk()
+            ->assertJsonPath('created', true);
+
+        $this->assertSame(2, TableSession::query()->where('dining_table_id', $session->dining_table_id)->count());
+        $this->assertDatabaseHas('table_sessions', [
+            'dining_table_id' => $session->dining_table_id,
+            'status' => TableSession::STATUS_OPEN,
+            'qr_ordering_enabled' => true,
+        ]);
+    }
+
+    public function test_waiter_can_open_a_table_and_create_a_manual_order(): void
+    {
+        [$cafe, $branch] = $this->cafeWithBranch();
+        $table = DiningTable::createWithToken(['branch_id' => $branch->id, 'name' => 'Masa 8', 'is_active' => true]);
+        $category = $cafe->categories()->create(['name' => 'Kahveler', 'is_active' => true]);
+        $product = $cafe->products()->create([
+            'category_id' => $category->id,
+            'name' => 'Türk kahvesi',
+            'price' => '80.00',
+            'is_available' => true,
+        ]);
+        $waiter = $this->staffUser(User::ROLE_WAITER, $cafe, $branch);
+
+        $this->actingAs($waiter)->postJson(route('staff.sessions.open-table', [$branch, $table]))
+            ->assertOk()
+            ->assertJsonPath('ok', true)
+            ->assertJsonPath('created', true);
+
+        $session = TableSession::query()->firstOrFail();
+        $this->assertSame($waiter->id, $session->opened_by);
+        $this->assertTrue($session->qr_ordering_enabled);
+
+        $this->actingAs($waiter)->post(route('staff.sessions.items.store', $session->id), [
+            'items' => [$product->id => 2],
+            'note' => 'Müşteri adına girildi',
+        ])->assertRedirect(route('staff.sessions.show', $session->id));
+
+        $this->assertDatabaseHas('orders', [
+            'table_session_id' => $session->id,
+            'source' => 'waiter',
+            'status' => Order::STATUS_PENDING,
+            'total' => '160.00',
+        ]);
+
+        $this->actingAs($waiter)->getJson(route('staff.board.data', $branch))
+            ->assertOk()
+            ->assertJsonPath('summary.pending', 1)
+            ->assertJsonPath('orders.0.source', 'waiter');
     }
 
     public function test_owner_kitchen_preview_uses_manage_endpoints_instead_of_waiter_only_routes(): void
@@ -100,7 +200,7 @@ class OperationsPanelTest extends TestCase
             ->assertOk();
     }
 
-    public function test_waiter_can_resolve_a_service_request_only_for_own_branch(): void
+    public function test_waiter_claims_a_service_request_before_resolving_it(): void
     {
         [$cafe, $branch, $session, $order] = $this->openTable();
         $waiter = $this->staffUser(User::ROLE_WAITER, $cafe, $branch);
@@ -116,7 +216,16 @@ class OperationsPanelTest extends TestCase
         $this->actingAs($waiter)->getJson(route('staff.board.data', $branch))
             ->assertOk()
             ->assertJsonPath('summary.requests', 1)
-            ->assertJsonPath('requests.0.type_label', 'Hesap istiyor');
+            ->assertJsonPath('requests.0.type_label', 'Hesap istiyor')
+            ->assertJsonPath('requests.0.claimed_by_name', null)
+            ->assertJsonPath('requests.0.is_claimed_by_me', false);
+
+        $this->actingAs($waiter)->postJson(route('staff.service-requests.claim', $request))
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        $request->refresh();
+        $this->assertSame($waiter->id, $request->claimed_by);
 
         $this->actingAs($waiter)->postJson(route('staff.service-requests.resolve', $request))
             ->assertOk();
@@ -126,6 +235,111 @@ class OperationsPanelTest extends TestCase
             'status' => ServiceRequest::STATUS_RESOLVED,
             'resolved_by' => $waiter->id,
         ]);
+    }
+
+    public function test_only_the_waiter_who_claimed_a_request_can_resolve_it(): void
+    {
+        [$cafe, $branch, $session] = $this->openTable();
+        $firstWaiter = $this->staffUser(User::ROLE_WAITER, $cafe, $branch);
+        $secondWaiter = $this->staffUser(User::ROLE_WAITER, $cafe, $branch);
+        $request = ServiceRequest::query()->create([
+            'branch_id' => $branch->id,
+            'dining_table_id' => $session->dining_table_id,
+            'table_session_id' => $session->id,
+            'type' => ServiceRequest::TYPE_WAITER,
+            'status' => ServiceRequest::STATUS_OPEN,
+        ]);
+
+        $this->actingAs($firstWaiter)->postJson(route('staff.service-requests.claim', $request))
+            ->assertOk();
+
+        $this->actingAs($secondWaiter)->getJson(route('staff.board.data', $branch))
+            ->assertOk()
+            ->assertJsonPath('requests.0.claimed_by_name', $firstWaiter->name)
+            ->assertJsonPath('requests.0.is_claimed_by_me', false);
+
+        $this->actingAs($secondWaiter)->postJson(route('staff.service-requests.claim', $request))
+            ->assertStatus(409);
+        $this->actingAs($secondWaiter)->postJson(route('staff.service-requests.resolve', $request))
+            ->assertForbidden();
+
+        $this->actingAs($firstWaiter)->postJson(route('staff.service-requests.release', $request))
+            ->assertOk();
+        $this->actingAs($secondWaiter)->postJson(route('staff.service-requests.claim', $request))
+            ->assertOk();
+        $this->actingAs($secondWaiter)->postJson(route('staff.service-requests.resolve', $request))
+            ->assertOk();
+
+        $this->assertDatabaseHas('service_requests', [
+            'id' => $request->id,
+            'status' => ServiceRequest::STATUS_RESOLVED,
+            'resolved_by' => $secondWaiter->id,
+        ]);
+    }
+
+    public function test_kitchen_staff_cannot_claim_or_resolve_waiter_calls(): void
+    {
+        [$cafe, $branch, $session] = $this->openTable();
+        $kitchen = $this->staffUser(User::ROLE_KITCHEN, $cafe, $branch);
+        $request = ServiceRequest::query()->create([
+            'branch_id' => $branch->id,
+            'dining_table_id' => $session->dining_table_id,
+            'table_session_id' => $session->id,
+            'type' => ServiceRequest::TYPE_BILL,
+            'status' => ServiceRequest::STATUS_OPEN,
+        ]);
+
+        $this->actingAs($kitchen)->getJson(route('staff.board.data', $branch))
+            ->assertOk()
+            ->assertJsonPath('can_open_tables', false)
+            ->assertJsonPath('requests.0.can_claim_requests', false);
+
+        $this->actingAs($kitchen)->postJson(route('staff.service-requests.claim', $request))
+            ->assertForbidden();
+        $this->actingAs($kitchen)->postJson(route('staff.service-requests.resolve', $request))
+            ->assertForbidden();
+
+        $this->assertDatabaseHas('service_requests', [
+            'id' => $request->id,
+            'status' => ServiceRequest::STATUS_OPEN,
+            'claimed_by' => null,
+        ]);
+    }
+
+    public function test_full_payment_closes_open_waiter_calls_and_static_qr_cannot_create_another(): void
+    {
+        [$cafe, $branch, $session, $order] = $this->openTable();
+        $order->forceFill(['status' => Order::STATUS_SERVED, 'served_at' => now()])->save();
+        $table = DiningTable::query()->findOrFail($session->dining_table_id);
+        $waiter = $this->staffUser(User::ROLE_WAITER, $cafe, $branch);
+        $serviceRequest = ServiceRequest::query()->create([
+            'branch_id' => $branch->id,
+            'dining_table_id' => $table->id,
+            'table_session_id' => $session->id,
+            'type' => ServiceRequest::TYPE_WAITER,
+            'status' => ServiceRequest::STATUS_OPEN,
+        ]);
+
+        $this->actingAs($waiter)->post(route('staff.sessions.payments.store', $session->id), [
+            'method' => Payment::METHOD_CASH,
+            'amount' => '250.00',
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('table_sessions', ['id' => $session->id, 'status' => TableSession::STATUS_CLOSED]);
+        $this->assertDatabaseHas('service_requests', [
+            'id' => $serviceRequest->id,
+            'status' => ServiceRequest::STATUS_RESOLVED,
+            'resolved_by' => $waiter->id,
+            'claimed_by' => null,
+        ]);
+        $this->assertDatabaseHas('activity_logs', [
+            'action' => 'service_request.closed_with_session',
+            'subject_id' => $serviceRequest->id,
+        ]);
+
+        $this->postJson(route('customer.call', $table->token()), ['type' => ServiceRequest::TYPE_WAITER])
+            ->assertUnprocessable()
+            ->assertJsonPath('code', 'table_session_closed');
     }
 
     public function test_owner_can_create_update_and_deactivate_a_coupon(): void

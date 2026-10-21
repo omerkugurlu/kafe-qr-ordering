@@ -8,7 +8,10 @@ use App\Models\Order;
 use App\Models\Payment;
 use App\Models\TableSession;
 use App\Models\User;
+use App\Services\LoyaltyService;
 use App\Services\OrderSettlementService;
+use App\Services\PaymentAllocationService;
+use App\Services\ServiceRequestLifecycleService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -18,7 +21,7 @@ use Illuminate\Validation\ValidationException;
 
 class PaymentController extends Controller
 {
-    public function store(Request $request, int $sessionId, OrderSettlementService $settlement): RedirectResponse
+    public function store(Request $request, int $sessionId, OrderSettlementService $settlement, ServiceRequestLifecycleService $serviceRequests, PaymentAllocationService $paymentAllocation): RedirectResponse
     {
         $validated = $request->validate([
             'method' => ['required', Rule::in([Payment::METHOD_CASH, Payment::METHOD_CARD])],
@@ -32,7 +35,7 @@ class PaymentController extends Controller
 
         $closed = false;
 
-        DB::transaction(function () use ($session, $request, $validated, $amountCents, $settlement, &$closed): void {
+        DB::transaction(function () use ($session, $request, $validated, $amountCents, $settlement, $serviceRequests, $paymentAllocation, &$closed): void {
             $locked = TableSession::query()->with('branch')->whereKey($session->id)->lockForUpdate()->firstOrFail();
             abort_unless($locked->status === TableSession::STATUS_OPEN, 409);
             $dueCents = $locked->dueAmountCents();
@@ -47,8 +50,7 @@ class PaymentController extends Controller
                     ->whereHas('items', fn ($query) => $query->whereKey($orderItemId))
                     ->with(['items' => fn ($query) => $query->whereKey($orderItemId)])
                     ->firstOrFail()->items->first();
-                $alreadyPaid = Payment::query()->where('order_item_id', $orderItemId)->whereNull('voided_at')->sum('amount');
-                $itemDueCents = max(0, self::moneyToCents((string) $item->line_total) - self::moneyToCents((string) $alreadyPaid));
+                $itemDueCents = $paymentAllocation->itemBalances($locked)[$orderItemId] ?? 0;
 
                 if ($amountCents > $itemDueCents) {
                     throw ValidationException::withMessages(['amount' => 'Bu kalem için kalan tutardan fazla ödeme kaydedilemez.']);
@@ -69,11 +71,14 @@ class PaymentController extends Controller
             if ($settled) {
                 $locked->forceFill([
                     'status' => TableSession::STATUS_CLOSED,
+                    'qr_ordering_enabled' => false,
                     'closed_by' => $request->user()->id,
                     'closed_at' => now(),
                     'closing_note' => 'Tam ödeme ile otomatik kapatıldı.',
                 ])->save();
                 $closed = true;
+
+                $serviceRequests->resolveForClosedSession($locked, $request->user(), $request->ip());
 
                 ActivityLog::query()->create([
                     'cafe_id' => $locked->branch->cafe_id,
@@ -115,22 +120,30 @@ class PaymentController extends Controller
         return redirect()->route('staff.branch', $session->branch_id);
     }
 
-    public function void(Request $request, int $sessionId, int $paymentId): RedirectResponse
+    public function void(Request $request, int $sessionId, int $paymentId, LoyaltyService $loyalty): RedirectResponse
     {
         $validated = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:160']]);
         $session = TableSession::query()->with('branch')->findOrFail($sessionId);
         Gate::authorize('view', $session->branch);
 
-        DB::transaction(function () use ($session, $paymentId, $request, $validated): void {
+        DB::transaction(function () use ($session, $paymentId, $request, $validated, $loyalty): void {
             $locked = TableSession::query()->whereKey($session->id)->lockForUpdate()->firstOrFail();
-            abort_unless($locked->status === TableSession::STATUS_OPEN, 409);
+            $wasClosed = $locked->status === TableSession::STATUS_CLOSED;
             $payment = $locked->payments()->whereKey($paymentId)->lockForUpdate()->firstOrFail();
+
+            if ($locked->status === TableSession::STATUS_CLOSED) {
+                $canCorrect = $request->user()->hasRole(User::ROLE_CAFE_OWNER, User::ROLE_CAFE_MANAGER)
+                    || $payment->recorded_by === $request->user()->id;
+                abort_unless($canCorrect, 403, 'Kapalı adisyonda yalnızca ödemeyi kaydeden çalışan veya yönetici düzeltme yapabilir.');
+            } else {
+                abort_unless($locked->status === TableSession::STATUS_OPEN, 409);
+            }
 
             if ($payment->voided_at !== null) {
                 throw ValidationException::withMessages(['payment' => 'Bu ödeme kaydı daha önce iptal edilmiş.']);
             }
 
-            if ($locked->orders()->where('status', Order::STATUS_PAID)->exists()) {
+            if ($locked->status === TableSession::STATUS_OPEN && $locked->orders()->where('status', Order::STATUS_PAID)->exists()) {
                 $relatedOrder = $payment->orderItem?->order;
                 if ($relatedOrder?->status === Order::STATUS_PAID || $payment->order_item_id === null) {
                     throw ValidationException::withMessages(['payment' => 'Ödeme kapanmış bir siparişe ait veya adisyon geneline kaydedilmiş. Bu kaydı buradan iptal edemezsiniz.']);
@@ -138,6 +151,42 @@ class PaymentController extends Controller
             }
 
             $payment->forceFill(['voided_at' => now(), 'void_reason' => trim($validated['reason'])])->save();
+
+            if ($locked->status === TableSession::STATUS_CLOSED && $locked->dueAmountCents() > 0) {
+                $affectedOrders = $locked->orders()->where('status', Order::STATUS_PAID)->lockForUpdate()->get();
+
+                foreach ($affectedOrders as $order) {
+                    $loyalty->reverseEarningsForPaidOrder($order, $request->user()->id);
+                    $order->forceFill([
+                        'status' => Order::STATUS_SERVED,
+                        'paid_at' => null,
+                    ])->save();
+                }
+
+                $locked->forceFill([
+                    'status' => TableSession::STATUS_OPEN,
+                    'qr_ordering_enabled' => false,
+                    'closed_by' => null,
+                    'closed_at' => null,
+                    'closing_note' => null,
+                ])->save();
+
+                ActivityLog::query()->create([
+                    'cafe_id' => $locked->branch->cafe_id,
+                    'branch_id' => $locked->branch_id,
+                    'user_id' => $request->user()->id,
+                    'action' => 'table_session.reopened_for_payment_correction',
+                    'subject_type' => TableSession::class,
+                    'subject_id' => $locked->id,
+                    'metadata' => [
+                        'reason' => trim($validated['reason']),
+                        'payment_id' => $payment->id,
+                        'affected_orders' => $affectedOrders->modelKeys(),
+                    ],
+                    'ip_address' => $request->ip(),
+                ]);
+            }
+
             ActivityLog::query()->create([
                 'cafe_id' => $locked->branch->cafe_id,
                 'branch_id' => $locked->branch_id,
@@ -145,7 +194,11 @@ class PaymentController extends Controller
                 'action' => 'payment.voided',
                 'subject_type' => Payment::class,
                 'subject_id' => $payment->id,
-                'metadata' => ['reason' => $payment->void_reason, 'amount' => $payment->amount],
+                'metadata' => [
+                    'reason' => $payment->void_reason,
+                    'amount' => $payment->amount,
+                    'session_reopened' => $wasClosed && $locked->status === TableSession::STATUS_OPEN,
+                ],
                 'ip_address' => $request->ip(),
             ]);
         });

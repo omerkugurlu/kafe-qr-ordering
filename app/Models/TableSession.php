@@ -19,6 +19,7 @@ class TableSession extends Model
         'branch_id',
         'dining_table_id',
         'status',
+        'qr_ordering_enabled',
         'opened_by',
         'closed_by',
         'opened_at',
@@ -31,6 +32,7 @@ class TableSession extends Model
         return [
             'opened_at' => 'datetime',
             'closed_at' => 'datetime',
+            'qr_ordering_enabled' => 'boolean',
         ];
     }
 

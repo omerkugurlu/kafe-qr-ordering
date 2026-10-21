@@ -83,6 +83,8 @@ function initMenu(root, data) {
     const storedCart = loadCart();
     let cart = storedCart;
     let orderNote = localStorage.getItem(noteKey) ?? '';
+    let orderingAvailable = data.ordering_available === true;
+    let orderWaitingForWaiter = false;
     let coupon = null;
     let loyaltyCampaignId = null;
     const loyalty = data.loyalty ?? null;
@@ -231,10 +233,15 @@ function initMenu(root, data) {
     }
 
     function addLine(productId, quantity = 1, optionIds = [], note = '') {
+        if (!orderingAvailable) {
+            toast(strings.ordering_unavailable, 'info');
+            return false;
+        }
+
         const product = productsById(productId);
 
         if (!product) {
-            return;
+            return false;
         }
 
         const normalized = {
@@ -255,6 +262,8 @@ function initMenu(root, data) {
         persistCart();
         renderCart();
         scheduleCouponRevalidation();
+
+        return true;
     }
 
     function removeLine(key) {
@@ -668,7 +677,9 @@ function initMenu(root, data) {
         }
 
         const product = sheetState.product;
-        addLine(product.id, sheetState.qty, [...sheetState.optionIds], sheetState.note);
+        if (!addLine(product.id, sheetState.qty, [...sheetState.optionIds], sheetState.note)) {
+            return;
+        }
         toast(`${product.name} · ${strings.cart_added}`, 'success');
         closeSheet('product');
 
@@ -818,8 +829,17 @@ function initMenu(root, data) {
         }
 
         if (checkout) {
-            checkout.disabled = cart.length === 0;
+            checkout.disabled = cart.length === 0 || !orderingAvailable;
         }
+
+        document.querySelectorAll('[data-confirm-order]').forEach((button) => {
+            button.disabled = cart.length === 0 || !orderingAvailable;
+        });
+
+        root.querySelectorAll('[data-quick-add], [data-add-to-cart], [data-upsell-add]').forEach((button) => {
+            button.disabled = !orderingAvailable;
+            button.setAttribute('aria-disabled', String(!orderingAvailable));
+        });
 
         const note = document.getElementById('cart-note');
 
@@ -1040,7 +1060,10 @@ function initMenu(root, data) {
     }
 
     function openConfirm() {
-        if (cart.length === 0) {
+        if (cart.length === 0 || !orderingAvailable) {
+            if (!orderingAvailable) {
+                toast(strings.ordering_unavailable, 'info');
+            }
             return;
         }
 
@@ -1050,7 +1073,10 @@ function initMenu(root, data) {
     }
 
     async function submitOrder(button) {
-        if (cart.length === 0) {
+        if (cart.length === 0 || !orderingAvailable) {
+            if (!orderingAvailable) {
+                toast(strings.ordering_unavailable, 'info');
+            }
             return;
         }
 
@@ -1110,6 +1136,7 @@ function initMenu(root, data) {
     }
 
     function renderSession(session) {
+        updateOrderingAvailability(session);
         updateBillRequestAvailability(session);
 
         const banner = document.getElementById('session-banner');
@@ -1153,6 +1180,38 @@ function initMenu(root, data) {
         statusesInitialised = true;
     }
 
+    function updateOrderingAvailability(session) {
+        orderWaitingForWaiter = session?.qr_order_pending === true;
+        orderingAvailable = session?.is_open === true
+            && session?.qr_ordering_enabled === true
+            && !orderWaitingForWaiter;
+
+        const banner = document.getElementById('ordering-status-banner');
+        if (banner) {
+            banner.hidden = orderingAvailable;
+            const message = banner.querySelector('[data-ordering-message]');
+            if (message) {
+                message.textContent = orderWaitingForWaiter
+                    ? strings.ordering_wait
+                    : strings.ordering_unavailable;
+            }
+        }
+
+        document.querySelectorAll('[data-confirm-order]').forEach((button) => {
+            button.disabled = cart.length === 0 || !orderingAvailable;
+        });
+
+        root.querySelectorAll('[data-quick-add], [data-add-to-cart], [data-upsell-add]').forEach((button) => {
+            button.disabled = !orderingAvailable;
+            button.setAttribute('aria-disabled', String(!orderingAvailable));
+        });
+
+        const checkout = document.querySelector('[data-checkout]');
+        if (checkout) {
+            checkout.disabled = cart.length === 0 || !orderingAvailable;
+        }
+    }
+
     /* Events */
 
     document.addEventListener('click', (event) => {
@@ -1177,7 +1236,9 @@ function initMenu(root, data) {
                 return;
             }
 
-            addLine(product.id, 1, [], '');
+            if (!addLine(product.id, 1, [], '')) {
+                return;
+            }
             toast(`${product.name} · ${strings.cart_added}`, 'success');
 
             if (product.suggestions.length > 0) {
@@ -1237,7 +1298,9 @@ function initMenu(root, data) {
                 return;
             }
 
-            addLine(product.id, 1, [], '');
+            if (!addLine(product.id, 1, [], '')) {
+                return;
+            }
             upsellState.added.add(Number(product.id));
             renderUpsell();
             toast(`${product.name} · ${strings.cart_added}`, 'success');

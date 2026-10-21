@@ -218,6 +218,12 @@ class ProductOptionsFlowTest extends TestCase
             'is_available' => true,
         ]);
         $table = DiningTable::createWithToken(['branch_id' => $branch->id, 'name' => 'Masa '.uniqid(), 'is_active' => true]);
+        TableSession::query()->create([
+            'branch_id' => $branch->id,
+            'dining_table_id' => $table->id,
+            'status' => TableSession::STATUS_OPEN,
+            'opened_at' => now(),
+        ]);
 
         return [$cafe, $branch, $product, $table, $table->token()];
     }

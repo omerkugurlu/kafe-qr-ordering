@@ -177,6 +177,56 @@ class LoyaltyService
         ]);
     }
 
+    public function reverseEarningsForPaidOrder(Order $order, ?int $actorId): void
+    {
+        if ($order->customer_id === null) {
+            return;
+        }
+
+        $transactions = LoyaltyTransaction::query()
+            ->where('order_id', $order->id)
+            ->whereIn('type', ['earned', 'earned_reversed'])
+            ->lockForUpdate()
+            ->get();
+        $pointsDelta = (int) $transactions->sum('points_delta');
+        $ordersDelta = (int) $transactions->sum('orders_delta');
+
+        if ($pointsDelta <= 0 && $ordersDelta <= 0) {
+            return;
+        }
+
+        $customer = User::query()->whereKey($order->customer_id)->lockForUpdate()->first();
+        if ($customer === null) {
+            return;
+        }
+
+        $account = LoyaltyAccount::query()
+            ->where('cafe_id', $order->cafe_id)
+            ->where('user_id', $customer->id)
+            ->lockForUpdate()
+            ->first();
+        if ($account === null) {
+            return;
+        }
+
+        $account->forceFill([
+            'points' => max(0, $account->points - $pointsDelta),
+            'completed_order_count' => max(0, $account->completed_order_count - $ordersDelta),
+        ])->save();
+
+        LoyaltyTransaction::query()->create([
+            'cafe_id' => $order->cafe_id,
+            'user_id' => $customer->id,
+            'order_id' => $order->id,
+            'actor_id' => $actorId,
+            'type' => 'earned_reversed',
+            'points_delta' => -$pointsDelta,
+            'orders_delta' => -$ordersDelta,
+            'discount_amount' => 0,
+            'description' => 'Tahsilat kaydı düzeltildi; sipariş puanı geri alındı',
+        ]);
+    }
+
     public static function moneyToCents(string $amount): int
     {
         [$whole, $fraction] = array_pad(explode('.', $amount, 2), 2, '0');
