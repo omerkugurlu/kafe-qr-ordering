@@ -53,6 +53,8 @@ return [
     'bill' => 'Adisyon',
     'call_waiter' => 'Garson çağır',
     'request_bill' => 'Hesap iste',
+    'request_sent' => 'İletildi',
+    'bill_request_after_order_acceptance' => 'Garson bu masadaki bir siparişi onayladıktan sonra hesap isteyebilirsin.',
     'service' => 'Servis',
     'payment' => 'Ödeme',
     'waiter_called' => 'Garson çağrınız iletildi.',

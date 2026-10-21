@@ -7,6 +7,7 @@
         implode(',', array_map(fn (array $order): string => $order['status'], $session['orders'])),
     ]);
     $isOpen = $session['status'] === 'open';
+    $canRequestBill = (bool) ($session['can_request_bill'] ?? false);
 @endphp
 
 <x-layouts.customer :title="__('customer.bill')" :cafe="$cafe">
@@ -151,7 +152,10 @@
                     <p class="text-xs font-semibold leading-relaxed text-muted">{{ __('customer.pay_at_counter') }}</p>
                     <div class="mt-3 grid gap-2">
                         @if ($isOpen)
-                            <button type="button" class="btn-primary w-full" data-service-request="bill" data-service-url="{{ route('customer.call', $token) }}">{{ __('customer.request_bill') }}</button>
+                            <div data-bill-request-group>
+                                <button type="button" class="btn-primary w-full disabled:cursor-not-allowed disabled:opacity-60" data-service-request="bill" data-bill-request data-request-sent-label="{{ __('customer.request_sent') }}" data-service-url="{{ route('customer.call', $token) }}" @disabled(! $canRequestBill) aria-disabled="{{ $canRequestBill ? 'false' : 'true' }}" @unless ($canRequestBill) aria-describedby="bill-request-help" @endunless><span data-bill-request-label>{{ __('customer.request_bill') }}</span></button>
+                                <p id="bill-request-help" data-bill-request-hint @if ($canRequestBill) hidden @endif class="mt-1 text-[10px] leading-relaxed text-muted">{{ __('customer.bill_request_after_order_acceptance') }}</p>
+                            </div>
                             <button type="button" class="btn-secondary w-full" data-service-request="waiter" data-service-url="{{ route('customer.call', $token) }}">{{ __('customer.call_waiter') }}</button>
                         @endif
                         <a href="{{ route('customer.menu', $token) }}" class="btn-secondary w-full">{{ $isOpen ? __('customer.menu') : __('customer.menu_again') }}</a>
@@ -163,6 +167,7 @@
         <script type="application/json" id="bill-data">{!! json_encode([
             'statusUrl' => route('customer.status', $token),
             'signature' => $signature,
+            'canRequestBill' => $canRequestBill,
         ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) !!}</script>
     </div>
 </x-layouts.customer>

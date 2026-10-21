@@ -7,6 +7,8 @@ use App\Models\Cafe;
 use App\Models\DiningTable;
 use App\Models\MenuProduct;
 use App\Models\Order;
+use App\Models\ServiceRequest;
+use App\Models\TableSession;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -87,6 +89,68 @@ class QrOrderingFlowTest extends TestCase
             ->assertSee('Deniz Kaya')
             ->assertSee('Hesabım')
             ->assertSee(route('customer.account', $token), false);
+    }
+
+    public function test_customer_can_request_bill_only_after_waiter_accepts_an_order(): void
+    {
+        [, , $table, $token, $product] = $this->createCafeTableAndProduct();
+
+        $this->post(route('customer.orders.store', $token), [
+            'items' => [$product->id => 1],
+        ])->assertRedirect();
+
+        $order = Order::query()->firstOrFail();
+        $menuResponse = $this->get(route('customer.menu', $token));
+        $menuResponse->assertOk()->assertSee('data-bill-request', false);
+        $trackResponse = $this->get(route('customer.order.track', ['token' => $token, 'orderNumber' => $order->order_number]));
+        $billResponse = $this->get(route('customer.bill', $token));
+
+        $this->assertMatchesRegularExpression('/<button[^>]*data-bill-request[^>]*\sdisabled(?:\s|>)/s', $menuResponse->getContent());
+        $this->assertMatchesRegularExpression('/<button[^>]*data-bill-request[^>]*\sdisabled(?:\s|>)/s', $trackResponse->getContent());
+        $this->assertMatchesRegularExpression('/<button[^>]*data-bill-request[^>]*\sdisabled(?:\s|>)/s', $billResponse->getContent());
+
+        $this->getJson(route('customer.status', $token))
+            ->assertOk()
+            ->assertJsonPath('session.can_request_bill', false);
+
+        $this->postJson(route('customer.call', $token), ['type' => ServiceRequest::TYPE_BILL])
+            ->assertUnprocessable()
+            ->assertJsonPath('code', 'order_not_accepted')
+            ->assertJsonPath('message', __('customer.bill_request_after_order_acceptance'));
+
+        $this->assertDatabaseMissing('service_requests', [
+            'dining_table_id' => $table->id,
+            'type' => ServiceRequest::TYPE_BILL,
+        ]);
+
+        $order->forceFill(['status' => Order::STATUS_ACCEPTED, 'accepted_at' => now()])->save();
+
+        $acceptedMenu = $this->get(route('customer.menu', $token));
+        $acceptedMenu->assertOk();
+        $this->assertDoesNotMatchRegularExpression('/<button[^>]*data-bill-request[^>]*\sdisabled(?:\s|>)/s', $acceptedMenu->getContent());
+
+        $this->getJson(route('customer.status', $token))
+            ->assertOk()
+            ->assertJsonPath('session.can_request_bill', true);
+
+        $this->postJson(route('customer.call', $token), ['type' => ServiceRequest::TYPE_BILL])
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        $this->assertDatabaseHas('service_requests', [
+            'dining_table_id' => $table->id,
+            'table_session_id' => $order->table_session_id,
+            'type' => ServiceRequest::TYPE_BILL,
+            'status' => ServiceRequest::STATUS_OPEN,
+        ]);
+
+        $order->tableSession()->update(['status' => TableSession::STATUS_CLOSED, 'closed_at' => now()]);
+
+        $this->postJson(route('customer.call', $token), ['type' => ServiceRequest::TYPE_BILL])
+            ->assertUnprocessable()
+            ->assertJsonPath('code', 'order_not_accepted');
+
+        $this->assertDatabaseCount('service_requests', 1);
     }
 
     public function test_table_qr_is_server_generated_svg_and_rotation_revokes_previous_token(): void

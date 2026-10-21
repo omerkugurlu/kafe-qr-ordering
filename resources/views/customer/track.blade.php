@@ -7,6 +7,7 @@
         'served' => __('customer.status_served'),
     ];
     $index = ['pending' => 0, 'accepted' => 1, 'ready' => 2, 'served' => 3, 'paid' => 4][$order['status']] ?? 0;
+    $canRequestBill = (bool) ($session['can_request_bill'] ?? false);
     $heroIcon = match ($order['status']) {
         'pending' => 'clock',
         'accepted' => 'chef',
@@ -148,7 +149,12 @@
                         </div>
                         <div class="mt-2 grid grid-cols-2 gap-2">
                             <button type="button" class="btn-ghost btn-sm border border-line" data-service-request="waiter" data-service-url="{{ route('customer.call', $token) }}">{{ __('customer.call_waiter') }}</button>
-                            <button type="button" class="btn-ghost btn-sm border border-line" data-service-request="bill" data-service-url="{{ route('customer.call', $token) }}">{{ __('customer.request_bill') }}</button>
+                            @if ($session['status'] === 'open')
+                                <div data-bill-request-group>
+                                    <button type="button" class="btn-ghost btn-sm w-full border border-line disabled:cursor-not-allowed disabled:opacity-60" data-service-request="bill" data-bill-request data-request-sent-label="{{ __('customer.request_sent') }}" data-service-url="{{ route('customer.call', $token) }}" @disabled(! $canRequestBill) aria-disabled="{{ $canRequestBill ? 'false' : 'true' }}" @unless ($canRequestBill) aria-describedby="bill-request-help" @endunless><span data-bill-request-label>{{ __('customer.request_bill') }}</span></button>
+                                    <p id="bill-request-help" data-bill-request-hint @if ($canRequestBill) hidden @endif class="mt-1 text-[10px] leading-relaxed text-muted">{{ __('customer.bill_request_after_order_acceptance') }}</p>
+                                </div>
+                            @endif
                         </div>
                     </div>
                 </div>
@@ -159,6 +165,7 @@
             'statusUrl' => route('customer.status', $token),
             'orderNumber' => $order['number'],
             'order' => $order,
+            'canRequestBill' => $canRequestBill,
             'strings' => trans('customer'),
         ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) !!}</script>
     </div>

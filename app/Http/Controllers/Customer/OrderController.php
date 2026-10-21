@@ -451,16 +451,55 @@ class OrderController extends Controller
             return $this->customerLoginRequiredResponse();
         }
 
-        $session = $this->currentSession($table);
+        $result = DB::transaction(function () use ($table, $validated): array {
+            $lockedTable = DiningTable::query()
+                ->whereKey($table->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $session = TableSession::query()
+                ->where('dining_table_id', $lockedTable->id)
+                ->where('status', TableSession::STATUS_OPEN)
+                ->latest('id')
+                ->lockForUpdate()
+                ->first();
 
-        $duplicate = ServiceRequest::query()
-            ->where('dining_table_id', $table->id)
-            ->where('type', $validated['type'])
-            ->where('status', ServiceRequest::STATUS_OPEN)
-            ->where('created_at', '>=', now()->subMinutes(2))
-            ->exists();
+            if ($validated['type'] === ServiceRequest::TYPE_BILL
+                && ($session === null || ! $session->orders()->whereIn('status', Order::BILL_REQUEST_ELIGIBLE_STATUSES)->exists())) {
+                return ['eligible' => false, 'duplicate' => false];
+            }
 
-        if ($duplicate) {
+            $duplicate = ServiceRequest::query()
+                ->where('dining_table_id', $lockedTable->id)
+                ->where('type', $validated['type'])
+                ->where('status', ServiceRequest::STATUS_OPEN)
+                ->where('created_at', '>=', now()->subMinutes(2))
+                ->exists();
+
+            if ($duplicate) {
+                return ['eligible' => true, 'duplicate' => true];
+            }
+
+            ServiceRequest::query()->create([
+                'branch_id' => $lockedTable->branch_id,
+                'dining_table_id' => $lockedTable->id,
+                'table_session_id' => $session?->id,
+                'type' => $validated['type'],
+                'status' => ServiceRequest::STATUS_OPEN,
+                'note' => $validated['note'] ?? null,
+            ]);
+
+            return ['eligible' => true, 'duplicate' => false];
+        });
+
+        if (! $result['eligible']) {
+            return response()->json([
+                'ok' => false,
+                'code' => 'order_not_accepted',
+                'message' => __('customer.bill_request_after_order_acceptance'),
+            ], 422);
+        }
+
+        if ($result['duplicate']) {
             return response()->json([
                 'ok' => true,
                 'duplicate' => true,
@@ -469,15 +508,6 @@ class OrderController extends Controller
                     : 'Garson çağrınız zaten iletildi. Kısa süre içinde gelecek.',
             ]);
         }
-
-        ServiceRequest::query()->create([
-            'branch_id' => $table->branch_id,
-            'dining_table_id' => $table->id,
-            'table_session_id' => $session?->id,
-            'type' => $validated['type'],
-            'status' => ServiceRequest::STATUS_OPEN,
-            'note' => $validated['note'] ?? null,
-        ]);
 
         return response()->json([
             'ok' => true,

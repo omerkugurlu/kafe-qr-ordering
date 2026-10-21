@@ -27,6 +27,31 @@ function statusBadgeClass(status) {
     }[status] ?? 'badge-neutral';
 }
 
+function updateBillRequestAvailability(session) {
+    const available = session?.can_request_bill === true;
+
+    document.querySelectorAll('[data-bill-request]').forEach((button) => {
+        button.dataset.billRequestAvailable = String(available);
+        const coolingDown = button.dataset.billRequestCoolingDown === 'true';
+        const disabled = !available || coolingDown;
+        button.disabled = disabled;
+        button.setAttribute('aria-disabled', String(disabled));
+
+        const group = button.closest('[data-bill-request-group]');
+        const hint = group?.querySelector('[data-bill-request-hint]') ?? button.querySelector('[data-bill-request-hint]');
+
+        if (hint) {
+            hint.hidden = available;
+
+            if (available) {
+                button.removeAttribute('aria-describedby');
+            } else if (hint.id) {
+                button.setAttribute('aria-describedby', hint.id);
+            }
+        }
+    });
+}
+
 /* -------------------------------------------------------------------------
  * Customer menu
  * ---------------------------------------------------------------------- */
@@ -1085,6 +1110,8 @@ function initMenu(root, data) {
     }
 
     function renderSession(session) {
+        updateBillRequestAvailability(session);
+
         const banner = document.getElementById('session-banner');
 
         if (!banner) {
@@ -1475,19 +1502,53 @@ document.addEventListener('click', async (event) => {
 
     button.disabled = true;
     const original = button.innerHTML;
+    const billLabel = button.querySelector('[data-bill-request-label]');
+    const originalBillLabel = billLabel?.textContent ?? '';
+
+    if (type === 'bill') {
+        button.dataset.billRequestCoolingDown = 'true';
+    }
 
     try {
         const response = await apiFetch(url, { method: 'POST', body: { type } });
         toast(response.message, 'success');
-        button.innerHTML = '✓ İletildi';
+        if (type === 'bill' && billLabel) {
+            billLabel.textContent = `✓ ${button.dataset.requestSentLabel || 'İletildi'}`;
+        } else {
+            button.innerHTML = '✓ İletildi';
+        }
         window.setTimeout(() => {
-            button.disabled = false;
-            button.innerHTML = original;
+            if (type === 'bill') {
+                delete button.dataset.billRequestCoolingDown;
+                if (billLabel) {
+                    billLabel.textContent = originalBillLabel;
+                }
+                updateBillRequestAvailability({
+                    can_request_bill: button.dataset.billRequestAvailable === 'true',
+                });
+            } else {
+                button.disabled = false;
+                button.innerHTML = original;
+            }
         }, 30000);
     } catch (error) {
         toast(error.message || 'İstek iletilemedi.', 'error');
-        button.disabled = false;
-        button.innerHTML = original;
+
+        if (type === 'bill') {
+            delete button.dataset.billRequestCoolingDown;
+            if (error.payload?.code === 'order_not_accepted') {
+                button.dataset.billRequestAvailable = 'false';
+            }
+            if (billLabel) {
+                billLabel.textContent = originalBillLabel;
+            }
+            updateBillRequestAvailability({
+                can_request_bill: button.dataset.billRequestAvailable === 'true',
+            });
+        } else {
+            button.disabled = false;
+            button.innerHTML = original;
+        }
     }
 });
 
@@ -1509,6 +1570,8 @@ function initTracking(root) {
     }
 
     let currentStatus = config.order.status;
+
+    updateBillRequestAvailability({ can_request_bill: config.canRequestBill });
 
     const applyOrder = (order) => {
         const strings = config.strings;
@@ -1601,6 +1664,7 @@ function initTracking(root) {
         }
 
         if (response.session) {
+            updateBillRequestAvailability(response.session);
             root.querySelectorAll('[data-track-due]').forEach((node) => {
                 node.textContent = response.session.due;
             });
@@ -1621,9 +1685,14 @@ if (billRoot) {
     const config = readJson('bill-data');
 
     if (config) {
+        updateBillRequestAvailability({ can_request_bill: config.canRequestBill });
+
         startPolling(async () => {
             const response = await apiFetch(config.statusUrl);
             const session = response.session;
+
+            updateBillRequestAvailability(session);
+
             const signature = session
                 ? [session.status, session.orders_count, session.due_cents, session.orders.map((order) => order.status).join(',')].join('|')
                 : 'closed';

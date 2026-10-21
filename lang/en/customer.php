@@ -53,6 +53,8 @@ return [
     'bill' => 'Bill',
     'call_waiter' => 'Call waiter',
     'request_bill' => 'Request bill',
+    'request_sent' => 'Sent',
+    'bill_request_after_order_acceptance' => 'You can request the bill after the waiter accepts an order at this table.',
     'service' => 'Service',
     'payment' => 'Payment',
     'waiter_called' => 'Your waiter has been notified.',

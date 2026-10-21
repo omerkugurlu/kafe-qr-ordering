@@ -77,6 +77,8 @@ class OrderPresenter
             'closed_at' => $session->closed_at?->toIso8601String(),
             'orders' => $activeOrders->map(fn (Order $order): array => $this->order($order))->values()->all(),
             'orders_count' => $activeOrders->count(),
+            'can_request_bill' => $session->status === TableSession::STATUS_OPEN
+                && $activeOrders->contains(fn (Order $order): bool => in_array($order->status, Order::BILL_REQUEST_ELIGIBLE_STATUSES, true)),
             'total_cents' => $totalCents,
             'total' => Money::format($totalCents),
             'payable_cents' => $session->ordersTotalCents(),

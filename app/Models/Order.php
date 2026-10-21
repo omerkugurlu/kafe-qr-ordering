@@ -23,6 +23,13 @@ class Order extends Model
 
     public const STATUS_CANCELLED = 'cancelled';
 
+    public const BILL_REQUEST_ELIGIBLE_STATUSES = [
+        self::STATUS_ACCEPTED,
+        self::STATUS_READY,
+        self::STATUS_SERVED,
+        self::STATUS_PAID,
+    ];
+
     protected $fillable = [
         'cafe_id',
         'branch_id',
