@@ -12,6 +12,7 @@ use App\Models\MenuProduct;
 use App\Models\Order;
 use App\Models\TableSession;
 use App\Services\OrderSettlementService;
+use App\Services\ProductOptionSelectionService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -24,12 +25,16 @@ class TableSessionController extends Controller
 {
     public function show(int $sessionId): View
     {
-        $session = TableSession::query()->with(['branch.cafe', 'diningTable', 'orders.items', 'payments.recorder'])->findOrFail($sessionId);
+        $session = TableSession::query()->with(['branch.cafe', 'diningTable', 'orders.items.options', 'payments.recorder'])->findOrFail($sessionId);
         Gate::authorize('view', $session->branch);
         $branch = $session->branch;
         $branchMenuId = $branch->uses_shared_menu ? null : $branch->id;
         $categories = $branch->cafe->categories()->where('branch_id', $branchMenuId)->where('is_active', true)
-            ->with(['products' => fn ($query) => $query->where('branch_id', $branchMenuId)->with(['branches' => fn ($branches) => $branches->whereKey($branch->id)])->orderBy('name')])
+            ->with(['products' => fn ($query) => $query->where('branch_id', $branchMenuId)
+                ->with([
+                    'branches' => fn ($branches) => $branches->whereKey($branch->id),
+                    'optionGroups' => fn ($groups) => $groups->where('is_active', true)->with(['options' => fn ($options) => $options->where('is_available', true)]),
+                ])->orderBy('name')])
             ->orderBy('sort_order')->get();
         $categories->each(fn ($category) => $category->setRelation(
             'products',
@@ -39,11 +44,13 @@ class TableSessionController extends Controller
         return view('staff.session', compact('session', 'categories'));
     }
 
-    public function addItems(Request $request, int $sessionId, OrderSettlementService $settlement): RedirectResponse
+    public function addItems(Request $request, int $sessionId, OrderSettlementService $settlement, ProductOptionSelectionService $optionSelection): RedirectResponse
     {
         $validated = $request->validate([
-            'items' => ['required', 'array', 'min:1', 'max:30'],
+            'items' => ['required', 'array', 'min:1', 'max:500'],
             'items.*' => ['required', 'integer', 'min:0', 'max:20'],
+            'options' => ['nullable', 'array'],
+            'options.*' => ['array'],
             'note' => ['nullable', 'string', 'max:500'],
         ]);
         $session = TableSession::query()->with('branch.cafe')->findOrFail($sessionId);
@@ -55,7 +62,11 @@ class TableSessionController extends Controller
             throw ValidationException::withMessages(['items' => 'Adisyona eklemek için en az bir ürün seçin.']);
         }
 
-        $order = DB::transaction(function () use ($session, $request, $validated, $quantities, $settlement): Order {
+        if ($quantities->count() > 30) {
+            throw ValidationException::withMessages(['items' => 'Bir adisyon işleminde en fazla 30 farklı ürün seçebilirsiniz.']);
+        }
+
+        $order = DB::transaction(function () use ($session, $request, $validated, $quantities, $settlement, $optionSelection): Order {
             $table = DiningTable::query()->whereKey($session->dining_table_id)->lockForUpdate()->firstOrFail();
             $branch = Branch::query()->whereKey($table->branch_id)->lockForUpdate()->firstOrFail();
             $cafe = Cafe::query()->whereKey($branch->cafe_id)->lockForUpdate()->firstOrFail();
@@ -86,11 +97,12 @@ class TableSessionController extends Controller
             if ($products->count() !== $quantities->count() || $products->contains(fn (MenuProduct $product): bool => ! $product->isAvailableAt($branch))) {
                 throw ValidationException::withMessages(['items' => 'Seçilen ürünlerden biri bu şubede satışa açık değil. Menüyü yenileyip tekrar deneyin.']);
             }
+            $optionSelections = $optionSelection->resolve($products, $validated['options'] ?? []);
 
             $subtotalCents = 0;
             $snapshots = [];
             foreach ($products as $product) {
-                $unitPriceCents = self::moneyToCents($product->priceFor($branch));
+                $unitPriceCents = self::moneyToCents($product->priceFor($branch)) + $optionSelections[$product->id]['price_delta_cents'];
                 $quantity = $quantities->get($product->id);
                 $lineCents = $unitPriceCents * $quantity;
                 $subtotalCents += $lineCents;
@@ -100,6 +112,7 @@ class TableSessionController extends Controller
                     'unit_price' => self::centsToMoney($unitPriceCents),
                     'quantity' => $quantity,
                     'line_total' => self::centsToMoney($lineCents),
+                    'option_snapshots' => $optionSelections[$product->id]['snapshots'],
                 ];
             }
 
@@ -121,7 +134,12 @@ class TableSessionController extends Controller
                 'accepted_at' => now(),
                 'served_at' => now(),
             ]);
-            $order->items()->createMany($snapshots);
+            foreach ($snapshots as $snapshot) {
+                $optionSnapshots = $snapshot['option_snapshots'];
+                unset($snapshot['option_snapshots']);
+                $item = $order->items()->create($snapshot);
+                $item->options()->createMany($optionSnapshots);
+            }
             $settlement->settleServedOrders($lockedSession);
             ActivityLog::query()->create([
                 'cafe_id' => $cafe->id,

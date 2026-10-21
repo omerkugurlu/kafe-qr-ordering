@@ -13,6 +13,7 @@ use App\Models\Order;
 use App\Models\TableSession;
 use App\Models\User;
 use App\Services\LoyaltyService;
+use App\Services\ProductOptionSelectionService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -21,11 +22,13 @@ use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
 {
-    public function store(Request $request, string $token, LoyaltyService $loyalty): RedirectResponse
+    public function store(Request $request, string $token, LoyaltyService $loyalty, ProductOptionSelectionService $optionSelection): RedirectResponse
     {
         $validated = $request->validate([
-            'items' => ['required', 'array', 'min:1', 'max:30'],
+            'items' => ['required', 'array', 'min:1', 'max:500'],
             'items.*' => ['required', 'integer', 'min:0', 'max:20'],
+            'options' => ['nullable', 'array'],
+            'options.*' => ['array'],
             'customer_note' => ['nullable', 'string', 'max:500'],
             'loyalty_campaign_id' => ['nullable', 'integer', 'exists:loyalty_campaigns,id'],
         ]);
@@ -41,7 +44,7 @@ class OrderController extends Controller
             return redirect()->route('customer.register', $token)->with('status', 'Bu kafede sipariş için müşteri hesabı gerekiyor.');
         }
 
-        if ($customer !== null && ($customer->role !== User::ROLE_CUSTOMER || $customer->cafe_id !== $cafe->id)) {
+        if ($customer !== null && (! $customer->is_active || $customer->role !== User::ROLE_CUSTOMER || $customer->cafe_id !== $cafe->id)) {
             throw ValidationException::withMessages(['items' => 'Bu müşteri hesabı bu kafede sipariş vermek için kullanılamaz.']);
         }
 
@@ -52,7 +55,11 @@ class OrderController extends Controller
         if ($quantities->isEmpty()) {
             throw ValidationException::withMessages(['items' => 'Lütfen en az bir ürün seçin.']);
         }
-        $order = DB::transaction(function () use ($table, $branch, $cafe, $customer, $quantities, $validated, $request, $loyalty): Order {
+
+        if ($quantities->count() > 30) {
+            throw ValidationException::withMessages(['items' => 'Bir siparişte en fazla 30 farklı ürün seçebilirsiniz.']);
+        }
+        $order = DB::transaction(function () use ($table, $branch, $customer, $quantities, $validated, $request, $loyalty, $optionSelection): Order {
             $lockedTable = DiningTable::query()->whereKey($table->id)->lockForUpdate()->firstOrFail();
             abort_unless($lockedTable->is_active, 404);
             $lockedBranch = $lockedTable->branch()->lockForUpdate()->firstOrFail();
@@ -63,7 +70,11 @@ class OrderController extends Controller
                 throw ValidationException::withMessages(['items' => 'Perde yenilendi. Sipariş vermek için müşteri hesabınızla giriş yapın.']);
             }
 
-            if ($customer !== null && ($customer->role !== User::ROLE_CUSTOMER || $customer->cafe_id !== $lockedCafe->id)) {
+            $lockedCustomer = $customer === null
+                ? null
+                : User::query()->whereKey($customer->id)->lockForUpdate()->firstOrFail();
+
+            if ($lockedCustomer !== null && (! $lockedCustomer->is_active || $lockedCustomer->role !== User::ROLE_CUSTOMER || $lockedCustomer->cafe_id !== $lockedCafe->id)) {
                 throw ValidationException::withMessages(['items' => 'Bu müşteri hesabı bu kafede sipariş vermek için kullanılamaz.']);
             }
 
@@ -85,6 +96,7 @@ class OrderController extends Controller
             if ($products->count() !== $quantities->count() || $products->contains(fn (MenuProduct $product): bool => ! $product->isAvailableAt($lockedBranch))) {
                 throw ValidationException::withMessages(['items' => 'Menüdeki ürünlerden biri artık siparişe açık değil. Menüyü yenileyip tekrar deneyin.']);
             }
+            $optionSelections = $optionSelection->resolve($products, $validated['options'] ?? []);
 
             $session = TableSession::query()
                 ->where('dining_table_id', $lockedTable->id)
@@ -104,8 +116,7 @@ class OrderController extends Controller
             $snapshots = [];
 
             foreach ($products as $product) {
-                $unitPrice = $product->priceFor($lockedBranch);
-                $unitPriceCents = self::moneyToCents($unitPrice);
+                $unitPriceCents = self::moneyToCents($product->priceFor($lockedBranch)) + $optionSelections[$product->id]['price_delta_cents'];
                 $quantity = $quantities->get($product->id);
                 $lineCents = $unitPriceCents * $quantity;
                 $subtotalCents += $lineCents;
@@ -115,6 +126,7 @@ class OrderController extends Controller
                     'unit_price' => self::centsToMoney($unitPriceCents),
                     'quantity' => $quantity,
                     'line_total' => self::centsToMoney($lineCents),
+                    'option_snapshots' => $optionSelections[$product->id]['snapshots'],
                 ];
             }
 
@@ -126,7 +138,7 @@ class OrderController extends Controller
                 'cafe_id' => $lockedCafe->id,
                 'branch_id' => $lockedBranch->id,
                 'table_session_id' => $session->id,
-                'customer_id' => $customer?->id,
+                'customer_id' => $lockedCustomer?->id,
                 'loyalty_campaign_id' => $validated['loyalty_campaign_id'] ?? null,
                 'order_number' => $orderNumber,
                 'source' => 'qr',
@@ -136,15 +148,20 @@ class OrderController extends Controller
                 'total' => self::centsToMoney($subtotalCents),
                 'customer_note' => $validated['customer_note'] ?? null,
             ]);
-            $order->items()->createMany($snapshots);
+            foreach ($snapshots as $snapshot) {
+                $optionSnapshots = $snapshot['option_snapshots'];
+                unset($snapshot['option_snapshots']);
+                $item = $order->items()->create($snapshot);
+                $item->options()->createMany($optionSnapshots);
+            }
 
             $discountCents = 0;
             if (! empty($validated['loyalty_campaign_id'])) {
-                if ($customer === null || ! $cafe->loyalty_enabled) {
+                if ($lockedCustomer === null || ! $lockedCafe->loyalty_enabled) {
                     throw ValidationException::withMessages(['loyalty_campaign_id' => 'Sadakat ödülü için bu kafenin müşteri hesabında oturum açın.']);
                 }
                 $campaign = LoyaltyCampaign::query()->whereKey($validated['loyalty_campaign_id'])->where('cafe_id', $lockedCafe->id)->firstOrFail();
-                $discountCents = $loyalty->redeem($lockedCafe, $customer, $campaign, $order, $subtotalCents, $customer->id);
+                $discountCents = $loyalty->redeem($lockedCafe, $lockedCustomer, $campaign, $order, $subtotalCents, $lockedCustomer->id);
                 $order->forceFill([
                     'discount_total' => self::centsToMoney($discountCents),
                     'total' => self::centsToMoney(max(0, $subtotalCents - $discountCents)),
@@ -154,7 +171,7 @@ class OrderController extends Controller
             ActivityLog::query()->create([
                 'cafe_id' => $lockedCafe->id,
                 'branch_id' => $lockedBranch->id,
-                'user_id' => $customer?->id,
+                'user_id' => $lockedCustomer?->id,
                 'action' => 'order.placed',
                 'subject_type' => Order::class,
                 'subject_id' => $order->id,

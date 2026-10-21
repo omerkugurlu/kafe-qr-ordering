@@ -13,6 +13,8 @@
             </div>
         </div>
 
+        @if ($errors->any())<div role="alert" class="mt-5 rounded-2xl border border-clay/20 bg-clay/10 px-4 py-3 text-sm font-semibold text-red-900">{{ $errors->first() }}</div>@endif
+
         <div class="mt-7 grid gap-6 lg:grid-cols-[1.1fr_.9fr]">
             <section class="rounded-3xl border border-ink/10 bg-paper p-6">
                 <h2 class="font-display text-xl font-extrabold">Adisyon kalemleri</h2>
@@ -31,6 +33,7 @@
                                     <span>{{ $item->quantity }}× {{ $item->name_snapshot }}</span>
                                     <span>₺{{ number_format((float) $item->line_total, 2, ',', '.') }}</span>
                                 </div>
+                                @if($item->options->isNotEmpty())<p class="ml-4 mt-1 text-xs leading-5 text-muted">{{ $item->options->map(fn ($option) => $option->name_snapshot.((float) $option->price_delta > 0 ? ' (+₺'.number_format((float) $option->price_delta, 2, ',', '.').')' : ' (ücretsiz)'))->implode(' · ') }}</p>@endif
                             @endforeach
                             @if ((float) $order->discount_total > 0)
                                 <p class="mt-2 text-right text-xs font-semibold text-leaf">Sadakat indirimi · −₺{{ number_format((float) $order->discount_total, 2, ',', '.') }}</p>
@@ -46,17 +49,40 @@
                 <section class="rounded-3xl border border-ink/10 bg-paper p-6">
                     <h2 class="font-display text-xl font-extrabold">Adisyona ürün ekle</h2>
                     <p class="mt-1 text-sm text-muted">Seçilen ürünler güncel şube fiyatıyla servis edilmiş olarak kaydedilir.</p>
-                    <form method="post" action="{{ route('staff.sessions.items.store', $session->id) }}" class="mt-4 space-y-4">
+                    <form method="post" action="{{ route('staff.sessions.items.store', $session->id) }}" class="mt-4 space-y-4" data-sparse-items>
                         @csrf
-                        <div class="max-h-72 space-y-3 overflow-y-auto rounded-xl bg-cream/50 p-3">
+                        <div class="max-h-[34rem] space-y-3 overflow-y-auto rounded-xl bg-cream/50 p-3">
                             @forelse ($categories as $category)
                                 <div>
                                     <p class="mb-1 text-xs font-bold uppercase tracking-wide text-clay">{{ $category->name }}</p>
                                     @foreach ($category->products as $product)
-                                        <label class="flex items-center justify-between gap-3 border-b border-ink/5 py-2 text-sm">
-                                            <span>{{ $product->name }} <span class="text-muted">· ₺{{ number_format((float) $product->priceFor($session->branch), 2, ',', '.') }}</span></span>
-                                            <input aria-label="{{ $product->name }} adedi" type="number" name="items[{{ $product->id }}]" value="0" min="0" max="20" class="w-16 rounded-lg border border-ink/15 bg-paper px-2 py-1.5 text-center font-bold">
-                                        </label>
+                                        <article class="rounded-xl border border-ink/5 bg-paper p-3" data-product-card>
+                                            <div class="flex items-center justify-between gap-3">
+                                                <span class="min-w-0 text-sm font-bold">{{ $product->name }} <span class="font-normal text-muted">· ₺{{ number_format((float) $product->priceFor($session->branch), 2, ',', '.') }}</span></span>
+                                                <label class="flex shrink-0 items-center gap-2 text-xs font-semibold text-muted">Adet<input aria-label="{{ $product->name }} adedi" type="number" name="items[{{ $product->id }}]" data-product-quantity value="0" min="0" max="20" inputmode="numeric" class="w-16 rounded-lg border border-ink/15 bg-cream px-2 py-2 text-center font-bold text-ink"></label>
+                                            </div>
+                                            @foreach ($product->optionGroups as $group)
+                                                @php($availableOptions = $group->options->where('is_available', true))
+                                                @if($availableOptions->isNotEmpty())
+                                                    <fieldset class="mt-3 rounded-lg bg-cream/60 p-3">
+                                                        <legend class="mb-2 flex w-full items-center justify-between gap-2 text-xs font-bold"><span>{{ $group->name }}</span><span class="text-[10px] font-semibold text-muted">{{ $group->min_selections > 0 ? 'Zorunlu' : 'İsteğe bağlı' }} · {{ $group->selection_mode === 'single' ? 'tek seçim' : 'çoklu seçim' }}</span></legend>
+                                                        @if($group->selection_mode === 'single')
+                                                            <label class="sr-only" for="staff-option-{{ $product->id }}-{{ $group->id }}">{{ $group->name }}</label>
+                                                            <select id="staff-option-{{ $product->id }}-{{ $group->id }}" name="options[{{ $product->id }}][{{ $group->id }}]" class="min-h-11 w-full rounded-lg border border-ink/10 bg-white px-3 py-2 text-sm">
+                                                                <option value="">{{ $group->min_selections > 0 ? 'Bir seçenek seçin' : 'Ekstra istemiyorum' }}</option>
+                                                                @foreach($availableOptions as $option)
+                                                                    <option value="{{ $option->id }}">{{ $option->name }}@if ((float) $option->price_delta > 0) · +₺{{ number_format((float) $option->price_delta, 2, ',', '.') }}@else · Ücretsiz @endif</option>
+                                                                @endforeach
+                                                            </select>
+                                                        @else
+                                                            <div class="grid gap-1 sm:grid-cols-2">
+                                                                @foreach($availableOptions as $option)<label class="flex min-h-11 items-center justify-between gap-2 rounded-lg px-2 py-2 text-xs"><span class="flex min-w-0 items-center gap-2"><input type="checkbox" name="options[{{ $product->id }}][{{ $group->id }}][]" value="{{ $option->id }}" class="size-4 shrink-0 accent-leaf"><span class="font-semibold">{{ $option->name }}</span></span><span class="shrink-0 text-muted">{{ (float) $option->price_delta > 0 ? '+₺'.number_format((float) $option->price_delta, 2, ',', '.') : 'Ücretsiz' }}</span></label>@endforeach
+                                                            </div>
+                                                        @endif
+                                                    </fieldset>
+                                                @endif
+                                            @endforeach
+                                        </article>
                                     @endforeach
                                 </div>
                             @empty
@@ -66,6 +92,7 @@
                         <label class="block text-sm font-bold">Not <span class="font-normal text-muted">(isteğe bağlı)</span>
                             <input name="note" maxlength="500" class="mt-2 w-full rounded-xl border border-ink/15 bg-cream/40 px-4 py-3">
                         </label>
+                        <p data-sparse-items-error class="hidden text-xs font-semibold text-red-700" role="alert"></p>
                         <button @disabled($session->status !== 'open' || $categories->sum(fn ($category) => $category->products->count()) === 0) class="w-full rounded-xl bg-leaf px-4 py-3 font-bold text-white disabled:opacity-50">Seçilenleri adisyona ekle</button>
                     </form>
                 </section>

@@ -79,7 +79,7 @@ class OrderBoard extends Component
         return view('livewire.staff.order-board', [
             'branch' => $branch,
             'orders' => $branch->orders()
-                ->with(['tableSession.diningTable', 'items'])
+                ->with(['tableSession.diningTable', 'items.options'])
                 ->whereIn('status', [Order::STATUS_PENDING, Order::STATUS_ACCEPTED])
                 ->latest()
                 ->paginate(12),

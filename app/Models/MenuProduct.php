@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class MenuProduct extends Model
 {
@@ -51,6 +52,11 @@ class MenuProduct extends Model
         return $this->belongsToMany(Branch::class, 'branch_product', 'menu_product_id', 'branch_id')
             ->withPivot(['price', 'is_available'])
             ->withTimestamps();
+    }
+
+    public function optionGroups(): HasMany
+    {
+        return $this->hasMany(MenuOptionGroup::class)->orderBy('sort_order')->orderBy('id');
     }
 
     public function priceFor(Branch $branch): string

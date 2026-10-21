@@ -19,7 +19,7 @@ class EnsureUserHasRole
     {
         $user = $request->user();
 
-        abort_unless($user !== null && $user->hasRole(...$roles), 403);
+        abort_unless($user !== null && $user->is_active && $user->hasRole(...$roles), 403);
 
         if ($user->role !== User::ROLE_PLATFORM_ADMIN) {
             abort_unless($user->cafe?->status === Cafe::STATUS_ACTIVE, 403);

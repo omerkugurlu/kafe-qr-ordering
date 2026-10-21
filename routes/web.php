@@ -36,18 +36,20 @@ Route::middleware('guest')->group(function (): void {
     Route::post('/sifre/yeni', [PasswordResetController::class, 'reset'])->middleware('throttle:login')->name('password.update');
 });
 
-Route::post('/cikis', [AuthenticatedSessionController::class, 'destroy'])->middleware('auth')->name('logout');
+Route::post('/cikis', [AuthenticatedSessionController::class, 'destroy'])->middleware(['auth', 'auth.session'])->name('logout');
 
-Route::get('/masa/{token}', [MenuController::class, 'show'])->middleware('throttle:qr-menu')->name('customer.menu');
-Route::post('/masa/{token}/siparis', [OrderController::class, 'store'])->middleware('throttle:qr-order')->name('customer.orders.store');
+Route::get('/masa/{token}', [MenuController::class, 'show'])->middleware(['auth.session', 'throttle:qr-menu'])->name('customer.menu');
+Route::post('/masa/{token}/siparis', [OrderController::class, 'store'])->middleware(['auth.session', 'throttle:qr-order'])->name('customer.orders.store');
 
-Route::middleware(['auth', 'role:platform_admin'])->prefix('platform')->name('platform.')->group(function (): void {
+Route::middleware(['auth', 'auth.session', 'role:platform_admin'])->prefix('platform')->name('platform.')->group(function (): void {
     Route::get('/', [CafeController::class, 'index'])->name('dashboard');
     Route::post('/cafeler', [CafeController::class, 'store'])->middleware('throttle:admin-write')->name('cafes.store');
+    Route::patch('/cafeler/{cafe}', [CafeController::class, 'update'])->middleware('throttle:admin-write')->name('cafes.update');
+    Route::patch('/cafeler/{cafe}/sahip', [CafeController::class, 'updateOwner'])->middleware('throttle:admin-write')->name('cafes.owner.update');
     Route::patch('/cafeler/{cafe}/durum', [CafeController::class, 'toggleStatus'])->middleware('throttle:admin-write')->name('cafes.status');
 });
 
-Route::middleware(['auth', 'role:cafe_owner,cafe_manager'])->prefix('yonetim')->name('manage.')->group(function (): void {
+Route::middleware(['auth', 'auth.session', 'role:cafe_owner,cafe_manager'])->prefix('yonetim')->name('manage.')->group(function (): void {
     Route::get('/', function () {
         $cafe = auth()->user()->cafe;
 
@@ -62,11 +64,15 @@ Route::middleware(['auth', 'role:cafe_owner,cafe_manager'])->prefix('yonetim')->
     Route::post('/subeler', [BranchController::class, 'store'])->middleware('throttle:admin-write')->name('branches.store');
     Route::get('/subeler/{branch}', [BranchController::class, 'show'])->name('branches.show');
     Route::patch('/subeler/{branch}', [BranchController::class, 'update'])->middleware('throttle:admin-write')->name('branches.update');
+    Route::post('/subeler/{branch}/menu-kopyala', [BranchController::class, 'copyMenu'])->middleware('throttle:admin-write')->name('branches.menu-copy');
     Route::post('/subeler/{branch}/kategoriler', [MenuCategoryController::class, 'store'])->middleware('throttle:admin-write')->name('categories.store');
     Route::patch('/subeler/{branch}/kategoriler/{categoryId}', [MenuCategoryController::class, 'update'])->middleware('throttle:admin-write')->name('categories.update');
     Route::delete('/subeler/{branch}/kategoriler/{categoryId}', [MenuCategoryController::class, 'destroy'])->middleware('throttle:admin-write')->name('categories.destroy');
     Route::post('/subeler/{branch}/urunler', [MenuProductController::class, 'store'])->middleware('throttle:admin-write')->name('products.store');
     Route::patch('/subeler/{branch}/urunler/{productId}', [MenuProductController::class, 'update'])->middleware('throttle:admin-write')->name('products.update');
+    Route::post('/subeler/{branch}/urunler/{productId}/secenek-gruplari', [MenuProductController::class, 'storeOptionGroup'])->middleware('throttle:admin-write')->name('products.option-groups.store');
+    Route::patch('/subeler/{branch}/urunler/{productId}/secenek-gruplari/{groupId}', [MenuProductController::class, 'updateOptionGroup'])->middleware('throttle:admin-write')->name('products.option-groups.update');
+    Route::delete('/subeler/{branch}/urunler/{productId}/secenek-gruplari/{groupId}', [MenuProductController::class, 'destroyOptionGroup'])->middleware('throttle:admin-write')->name('products.option-groups.destroy');
     Route::patch('/subeler/{branch}/urunler/{productId}/sube', [MenuProductController::class, 'updateBranchOverride'])->middleware('throttle:admin-write')->name('products.branch-update');
     Route::delete('/subeler/{branch}/urunler/{productId}', [MenuProductController::class, 'destroy'])->middleware('throttle:admin-write')->name('products.destroy');
     Route::get('/subeler/{branch}/masalar', [DiningTableController::class, 'index'])->name('tables.index');
@@ -84,7 +90,7 @@ Route::middleware(['auth', 'role:cafe_owner,cafe_manager'])->prefix('yonetim')->
     Route::patch('/sadakat/{campaign}', [LoyaltyCampaignController::class, 'update'])->middleware('throttle:admin-write')->name('loyalty.update');
 });
 
-Route::middleware(['auth', 'role:waiter'])->prefix('garson')->name('staff.')->group(function (): void {
+Route::middleware(['auth', 'auth.session', 'role:waiter'])->prefix('garson')->name('staff.')->group(function (): void {
     Route::get('/', function () {
         $branches = auth()->user()->branches()
             ->where('branches.is_active', true)

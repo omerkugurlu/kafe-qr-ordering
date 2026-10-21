@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Platform;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Cafe;
+use App\Models\DiningTable;
 use App\Models\User;
+use App\Services\SessionRevocationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -16,8 +18,29 @@ class CafeController extends Controller
 {
     public function index(): View
     {
+        $totalCafes = Cafe::query()->count();
+        $activeCafes = Cafe::query()->where('status', Cafe::STATUS_ACTIVE)->count();
+        $activeTables = DiningTable::query()
+            ->where('is_active', true)
+            ->whereHas('branch', fn ($query) => $query->where('is_active', true)
+                ->whereHas('cafe', fn ($cafeQuery) => $cafeQuery->where('status', Cafe::STATUS_ACTIVE)))
+            ->count();
+        $activeCustomers = User::query()
+            ->where('role', User::ROLE_CUSTOMER)
+            ->where('is_active', true)
+            ->whereHas('cafe', fn ($query) => $query->where('status', Cafe::STATUS_ACTIVE))
+            ->count();
+
         return view('platform.dashboard', [
-            'cafes' => Cafe::query()->withCount(['branches', 'users'])->latest()->paginate(20),
+            'cafes' => Cafe::query()
+                ->with(['users' => fn ($query) => $query->where('role', User::ROLE_CAFE_OWNER)])
+                ->withCount(['branches', 'users'])
+                ->latest()
+                ->paginate(20),
+            'totalCafes' => $totalCafes,
+            'activeCafes' => $activeCafes,
+            'activeTables' => $activeTables,
+            'activeCustomers' => $activeCustomers,
         ]);
     }
 
@@ -85,5 +108,88 @@ class CafeController extends Controller
         ]);
 
         return redirect()->route('platform.dashboard')->with('status', $cafe->name.' '.($next === Cafe::STATUS_ACTIVE ? 'etkinleştirildi.' : 'askıya alındı.'));
+    }
+
+    public function update(Request $request, Cafe $cafe): RedirectResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:120'],
+            'slug' => ['required', 'alpha_dash', 'max:120', Rule::unique('cafes', 'slug')->ignore($cafe->id)],
+            'status' => ['required', Rule::in([Cafe::STATUS_ACTIVE, Cafe::STATUS_SUSPENDED])],
+            'registration_policy' => ['required', Rule::in([Cafe::POLICY_GUEST, Cafe::POLICY_OPTIONAL, Cafe::POLICY_REQUIRED])],
+            'brand_name' => ['nullable', 'string', 'max:120'],
+            'loyalty_enabled' => ['required', 'boolean'],
+            'points_per_100' => ['required', 'integer', 'min:0', 'max:10000'],
+        ]);
+
+        DB::transaction(function () use ($cafe, $validated, $request): void {
+            $lockedCafe = Cafe::query()->whereKey($cafe->id)->lockForUpdate()->firstOrFail();
+            $lockedCafe->forceFill($validated)->save();
+
+            ActivityLog::query()->create([
+                'user_id' => $request->user()->id,
+                'cafe_id' => $lockedCafe->id,
+                'action' => 'cafe.updated',
+                'subject_type' => Cafe::class,
+                'subject_id' => $lockedCafe->id,
+                'metadata' => [
+                    'slug' => $lockedCafe->slug,
+                    'status' => $lockedCafe->status,
+                    'registration_policy' => $lockedCafe->registration_policy,
+                    'loyalty_enabled' => $lockedCafe->loyalty_enabled,
+                ],
+                'ip_address' => $request->ip(),
+            ]);
+        });
+
+        return redirect()->route('platform.dashboard')->with('status', 'Kafe bilgileri güncellendi.');
+    }
+
+    public function updateOwner(Request $request, Cafe $cafe, SessionRevocationService $sessions): RedirectResponse
+    {
+        $owner = $cafe->users()->where('role', User::ROLE_CAFE_OWNER)->firstOrFail();
+        $validated = $request->validate([
+            'owner_name' => ['required', 'string', 'max:120'],
+            'owner_email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($owner->id)],
+            'owner_is_active' => ['required', 'boolean'],
+            'owner_password' => ['nullable', 'string', 'min:12', 'max:255', 'confirmed'],
+        ]);
+
+        DB::transaction(function () use ($cafe, $owner, $validated, $request, $sessions): void {
+            $lockedCafe = Cafe::query()->whereKey($cafe->id)->lockForUpdate()->firstOrFail();
+            $lockedOwner = $lockedCafe->users()->whereKey($owner->id)->where('role', User::ROLE_CAFE_OWNER)->lockForUpdate()->firstOrFail();
+            $passwordReset = filled($validated['owner_password'] ?? null);
+            $attributes = [
+                'name' => $validated['owner_name'],
+                'email' => strtolower($validated['owner_email']),
+                'is_active' => (bool) $validated['owner_is_active'],
+            ];
+
+            if ($passwordReset) {
+                $attributes['password'] = $validated['owner_password'];
+                $lockedOwner->setRememberToken(null);
+            }
+
+            $lockedOwner->forceFill($attributes)->save();
+            if ($passwordReset) {
+                $sessions->revokeDatabaseSessions($lockedOwner);
+            }
+
+            ActivityLog::query()->create([
+                'user_id' => $request->user()->id,
+                'cafe_id' => $lockedCafe->id,
+                'action' => 'cafe.owner_credentials_updated',
+                'subject_type' => User::class,
+                'subject_id' => $lockedOwner->id,
+                'metadata' => [
+                    'email' => $lockedOwner->email,
+                    'is_active' => $lockedOwner->is_active,
+                    'password_reset' => $passwordReset,
+                ],
+                'ip_address' => $request->ip(),
+            ]);
+        });
+
+        return redirect()->route('platform.dashboard')->with('status', 'Kafe sahibi giriş bilgileri güncellendi.');
     }
 }
