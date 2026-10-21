@@ -69,6 +69,11 @@ function initMenu(root, data) {
     let statusesInitialised = false;
     let couponTimer = null;
 
+    document.querySelector('[data-featured-prev]')?.addEventListener('click', () => scrollFeatured(-1));
+    document.querySelector('[data-featured-next]')?.addEventListener('click', () => scrollFeatured(1));
+    document.getElementById('featured-products')?.addEventListener('scroll', updateFeaturedControls, { passive: true });
+    window.addEventListener('resize', updateFeaturedControls, { passive: true });
+
     const openSheet = (name) => window.skykite?.openSheet?.(name);
     const openDrawer = (name) => window.skykite?.openDrawer?.(name);
     const closeSheet = (name) => {
@@ -295,7 +300,7 @@ function initMenu(root, data) {
 
     function featuredCard(product) {
         return `
-            <article class="group relative w-[17rem] shrink-0 snap-start overflow-hidden rounded-3xl border border-line bg-paper shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-soft">
+            <article class="featured-product-card group relative snap-start overflow-hidden rounded-3xl border border-line bg-paper shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-soft">
                 <button type="button" class="absolute inset-0 z-0 size-full" data-product-open="${product.id}" aria-label="${escapeHtml(product.name)}"></button>
                 <div class="relative h-36 overflow-hidden bg-cream">
                     ${productImage(product, 'h-36 w-full', 'size-10')}
@@ -312,6 +317,34 @@ function initMenu(root, data) {
                 ${product.is_available ? `<button type="button" data-quick-add="${product.id}" class="absolute bottom-3 right-3 z-20 grid size-9 place-items-center rounded-full bg-forest text-white shadow-soft transition hover:bg-ink" aria-label="${escapeHtml(product.name)} — ${escapeHtml(strings.add)}"><svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>` : ''}
             </article>
         `;
+    }
+
+    function updateFeaturedControls() {
+        const root = document.getElementById('featured-products');
+        const controls = document.querySelector('[data-featured-controls]');
+        const previous = document.querySelector('[data-featured-prev]');
+        const next = document.querySelector('[data-featured-next]');
+
+        if (!root || !controls || !previous || !next) {
+            return;
+        }
+
+        const canScroll = root.scrollWidth > root.clientWidth + 1;
+        controls.hidden = !canScroll;
+        previous.disabled = root.scrollLeft <= 1;
+        next.disabled = root.scrollLeft + root.clientWidth >= root.scrollWidth - 1;
+    }
+
+    function scrollFeatured(direction) {
+        const root = document.getElementById('featured-products');
+        const card = root?.querySelector('.featured-product-card');
+
+        if (!root || !card) {
+            return;
+        }
+
+        const gap = Number.parseFloat(window.getComputedStyle(root).columnGap) || 0;
+        root.scrollBy({ left: direction * (card.getBoundingClientRect().width + gap), behavior: 'smooth' });
     }
 
     function renderChips() {
@@ -344,11 +377,13 @@ function initMenu(root, data) {
         if (items.length === 0 || activeCategory !== 'all' || search.trim() !== '') {
             section.hidden = true;
             root.innerHTML = '';
+            updateFeaturedControls();
             return;
         }
 
         section.hidden = false;
         root.innerHTML = items.map(featuredCard).join('');
+        window.requestAnimationFrame(updateFeaturedControls);
     }
 
     function renderSections() {

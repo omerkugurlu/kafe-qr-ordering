@@ -148,8 +148,13 @@ class CustomerExperienceTest extends TestCase
         $this->get(route('customer.menu', $table->token()))
             ->assertOk()
             ->assertSee('https://skykite.com.tr/?utm_source=masa_qr&amp;utm_medium=menu&amp;utm_campaign=cross_promotion', false)
+            ->assertSee(__('customer.brand_promo_eyebrow'))
             ->assertSee(__('customer.brand_promo_title'))
-            ->assertSee(__('customer.brand_promo_cta'));
+            ->assertSee(__('customer.brand_promo_description'))
+            ->assertSee(__('customer.brand_promo_cta'))
+            ->assertSee(__('customer.previous_featured'))
+            ->assertSee(__('customer.next_featured'))
+            ->assertSee('role="region" aria-label="'.__('customer.popular').'"', false);
     }
 
     public function test_an_existing_non_customer_session_can_continue_through_qr_customer_login(): void

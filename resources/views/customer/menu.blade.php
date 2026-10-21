@@ -183,9 +183,19 @@
                     <p class="eyebrow">{{ __('customer.recommended') }}</p>
                     <h2 class="mt-0.5 font-display text-xl font-semibold tracking-tight text-ink sm:text-2xl">{{ __('customer.popular') }}</h2>
                 </div>
-                <span class="text-[11px] font-bold uppercase tracking-[.14em] text-muted">{{ $brand }}</span>
+                <div class="flex items-center gap-3">
+                    <span class="hidden text-[11px] font-bold uppercase tracking-[.14em] text-muted sm:inline">{{ $brand }}</span>
+                    <div data-featured-controls hidden class="flex gap-2">
+                        <button type="button" data-featured-prev class="grid size-11 place-items-center rounded-full border border-line bg-paper text-forest transition hover:border-forest/30 hover:bg-sage/50 disabled:cursor-not-allowed disabled:opacity-40" aria-label="{{ __('customer.previous_featured') }}">
+                            <x-ui.icon name="arrow-left" class="size-4" />
+                        </button>
+                        <button type="button" data-featured-next class="grid size-11 place-items-center rounded-full border border-line bg-paper text-forest transition hover:border-forest/30 hover:bg-sage/50 disabled:cursor-not-allowed disabled:opacity-40" aria-label="{{ __('customer.next_featured') }}">
+                            <x-ui.icon name="arrow-right" class="size-4" />
+                        </button>
+                    </div>
+                </div>
             </div>
-            <div id="featured-products" class="scroll-hidden -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0"></div>
+            <div id="featured-products" role="region" aria-label="{{ __('customer.popular') }}" class="scroll-hidden -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0"></div>
         </section>
 
         <div id="menu-empty" hidden class="mx-auto max-w-6xl px-4 py-12 sm:px-6">
@@ -195,9 +205,31 @@
         <main id="menu-sections" class="mx-auto max-w-6xl space-y-10 px-4 py-7 sm:px-6"></main>
         <main id="search-results" hidden class="mx-auto grid max-w-6xl gap-3 px-4 py-7 sm:grid-cols-2 sm:px-6 xl:grid-cols-3"></main>
 
+        <section aria-labelledby="skykite-promo-heading" class="mx-auto max-w-6xl px-4 pb-8 pt-2 sm:px-6">
+            <div class="relative overflow-hidden rounded-[2rem] bg-forest px-5 py-6 text-white shadow-lift sm:px-8 sm:py-8">
+                <div aria-hidden="true" class="pointer-events-none absolute -right-10 -top-16 size-56 rounded-full bg-forest-soft/80 blur-3xl"></div>
+                <div class="relative flex flex-col items-start gap-5 sm:flex-row sm:items-center sm:justify-between sm:gap-8">
+                    <div class="flex items-start gap-4">
+                        <span class="grid size-12 shrink-0 place-items-center rounded-2xl bg-white/10 text-amber sm:size-14">
+                            <x-ui.icon name="sparkles" class="size-6" />
+                        </span>
+                        <div>
+                            <p class="text-[10px] font-bold uppercase tracking-[.2em] text-amber">{{ __('customer.brand_promo_eyebrow') }}</p>
+                            <h2 id="skykite-promo-heading" class="mt-1 font-display text-2xl font-semibold leading-tight sm:text-3xl">{{ __('customer.brand_promo_title') }}</h2>
+                            <p class="mt-2 max-w-2xl text-sm leading-relaxed text-white/75 sm:text-base">{{ __('customer.brand_promo_description') }}</p>
+                        </div>
+                    </div>
+                    <a href="https://skykite.com.tr/?utm_source=masa_qr&amp;utm_medium=menu&amp;utm_campaign=cross_promotion" target="_blank" rel="noopener noreferrer" class="inline-flex min-h-12 w-full shrink-0 items-center justify-center gap-2 rounded-full bg-amber px-5 font-bold text-forest transition hover:bg-amber-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:w-auto">
+                        {{ __('customer.brand_promo_cta') }}
+                        <x-ui.icon name="external" class="size-4" />
+                    </a>
+                </div>
+            </div>
+        </section>
+
         <footer class="mt-4 border-t border-line bg-paper">
-            <div class="mx-auto grid max-w-6xl gap-5 px-4 py-8 sm:grid-cols-3 sm:px-6">
-                <div class="sm:col-span-2">
+            <div class="mx-auto flex max-w-6xl flex-col gap-5 px-4 py-8 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                <div>
                     <p class="font-display text-lg font-semibold text-ink">{{ $brand }}</p>
                     <p class="mt-1 text-sm text-muted">{{ $branch->address ?: $cafe->address }}</p>
                     <div class="mt-3 flex flex-wrap items-center gap-3 text-xs font-semibold text-ink-soft">
@@ -212,11 +244,6 @@
                 <div class="text-xs text-muted sm:text-right">
                     <p class="font-bold uppercase tracking-[.18em] text-ink-soft">SkyKite</p>
                     <p class="mt-1">{{ __('customer.brand_tagline') }}</p>
-                    <a href="https://skykite.com.tr/?utm_source=masa_qr&amp;utm_medium=menu&amp;utm_campaign=cross_promotion" target="_blank" rel="noopener noreferrer" class="mt-3 inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-line bg-cream px-4 font-bold text-forest transition hover:border-forest/30 hover:bg-sage/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-forest">
-                        {{ __('customer.brand_promo_cta') }}
-                        <x-ui.icon name="arrow-up-right" class="size-3.5" />
-                    </a>
-                    <p class="mt-2 max-w-64 sm:ml-auto">{{ __('customer.brand_promo_title') }}</p>
                     @guest
                         <a href="{{ route('customer.register', $token) }}" class="mt-2 inline-block font-bold text-forest underline decoration-amber decoration-2 underline-offset-4">{{ __('customer.register') }}</a>
                     @endguest

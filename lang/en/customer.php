@@ -2,8 +2,12 @@
 
 return [
     'brand_tagline' => 'Order from your table',
-    'brand_promo_title' => 'A platform for getting products from Northern Cyprus to Türkiye',
+    'brand_promo_eyebrow' => 'SkyKite for students',
+    'brand_promo_title' => 'A student? SkyKite is for you.',
+    'brand_promo_description' => 'Share what you are looking for and connect with people who are travelling. Discover product journeys between Northern Cyprus and Türkiye with SkyKite.',
     'brand_promo_cta' => 'Discover SkyKite',
+    'previous_featured' => 'Previous popular products',
+    'next_featured' => 'Next popular products',
     'welcome' => 'Welcome',
     'table' => 'Table',
     'menu' => 'Menu',

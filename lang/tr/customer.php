@@ -2,8 +2,12 @@
 
 return [
     'brand_tagline' => 'Masadan sipariş',
-    'brand_promo_title' => 'KKTC’den Türkiye’ye ürün getirtme platformu',
+    'brand_promo_eyebrow' => 'Öğrenciler için SkyKite',
+    'brand_promo_title' => 'Öğrenci misin? SkyKite tam sana göre.',
+    'brand_promo_description' => 'Aradığın ürünü paylaş, yolculuğu olan kişilerle buluş. SkyKite ile KKTC ve Türkiye arasındaki ürün yolculuğunu keşfet.',
     'brand_promo_cta' => 'SkyKite’ı keşfet',
+    'previous_featured' => 'Önceki popüler ürünler',
+    'next_featured' => 'Sonraki popüler ürünler',
     'welcome' => 'Hoş geldiniz',
     'table' => 'Masa',
     'menu' => 'Menü',
