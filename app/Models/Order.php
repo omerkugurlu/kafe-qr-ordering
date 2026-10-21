@@ -15,6 +15,8 @@ class Order extends Model
 
     public const STATUS_ACCEPTED = 'accepted';
 
+    public const STATUS_READY = 'ready';
+
     public const STATUS_SERVED = 'served';
 
     public const STATUS_PAID = 'paid';
@@ -27,6 +29,8 @@ class Order extends Model
         'table_session_id',
         'customer_id',
         'loyalty_campaign_id',
+        'coupon_id',
+        'coupon_code',
         'created_by',
         'order_number',
         'source',
@@ -37,6 +41,7 @@ class Order extends Model
         'customer_note',
         'cancel_reason',
         'accepted_at',
+        'ready_at',
         'served_at',
         'cancelled_at',
         'paid_at',
@@ -49,6 +54,7 @@ class Order extends Model
             'discount_total' => 'decimal:2',
             'total' => 'decimal:2',
             'accepted_at' => 'datetime',
+            'ready_at' => 'datetime',
             'served_at' => 'datetime',
             'cancelled_at' => 'datetime',
             'paid_at' => 'datetime',
@@ -78,6 +84,11 @@ class Order extends Model
     public function loyaltyCampaign(): BelongsTo
     {
         return $this->belongsTo(LoyaltyCampaign::class);
+    }
+
+    public function coupon(): BelongsTo
+    {
+        return $this->belongsTo(Coupon::class);
     }
 
     public function items(): HasMany

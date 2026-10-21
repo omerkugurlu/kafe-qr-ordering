@@ -57,6 +57,11 @@ class Branch extends Model
         return $this->hasMany(DiningTable::class);
     }
 
+    public function serviceRequests(): HasMany
+    {
+        return $this->hasMany(ServiceRequest::class);
+    }
+
     public function tableSessions(): HasMany
     {
         return $this->hasMany(TableSession::class);
@@ -65,5 +70,10 @@ class Branch extends Model
     public function orders(): HasMany
     {
         return $this->hasMany(Order::class);
+    }
+
+    public function announcements(): HasMany
+    {
+        return $this->hasMany(Announcement::class);
     }
 }

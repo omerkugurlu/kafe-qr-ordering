@@ -145,7 +145,7 @@ class AdminCafeProvisioningTest extends TestCase
                 'loyalty_enabled' => true,
                 'points_per_100' => 3,
             ])
-            ->assertRedirect(route('platform.dashboard'));
+            ->assertRedirect(route('platform.cafes.show', $cafe));
 
         $this->patch(route('platform.cafes.owner.update', $cafe), [
             'owner_name' => 'Yeni Kafe Sahibi',
@@ -153,7 +153,7 @@ class AdminCafeProvisioningTest extends TestCase
             'owner_is_active' => true,
             'owner_password' => 'New-Owner-Password-2026!',
             'owner_password_confirmation' => 'New-Owner-Password-2026!',
-        ])->assertRedirect(route('platform.dashboard'));
+        ])->assertRedirect(route('platform.cafes.show', $cafe));
 
         $cafe->refresh();
         $owner->refresh();

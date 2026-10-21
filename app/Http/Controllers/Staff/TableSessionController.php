@@ -11,6 +11,8 @@ use App\Models\MenuCategory;
 use App\Models\MenuProduct;
 use App\Models\Order;
 use App\Models\TableSession;
+use App\Models\User;
+use App\Services\Money;
 use App\Services\OrderSettlementService;
 use App\Services\ProductOptionSelectionService;
 use Illuminate\Http\RedirectResponse;
@@ -27,6 +29,35 @@ class TableSessionController extends Controller
     {
         $session = TableSession::query()->with(['branch.cafe', 'diningTable', 'orders.items.options', 'payments.recorder'])->findOrFail($sessionId);
         Gate::authorize('view', $session->branch);
+
+        $dueCents = $session->dueAmountCents();
+        $activePayments = $session->payments->whereNull('voided_at');
+        $paidByItemCents = $activePayments
+            ->whereNotNull('order_item_id')
+            ->groupBy('order_item_id')
+            ->map(fn ($payments): int => $payments->sum(fn ($payment): int => Money::toCents($payment->amount)));
+        $unallocatedPaymentCents = $activePayments
+            ->whereNull('order_item_id')
+            ->sum(fn ($payment): int => Money::toCents($payment->amount));
+        $itemDueCents = [];
+        $mappedItemDueCents = 0;
+
+        foreach ($session->orders->whereIn('status', ['accepted', 'ready', 'served']) as $order) {
+            foreach ($order->items as $item) {
+                $itemDue = max(0, Money::toCents($item->line_total) - ($paidByItemCents[$item->id] ?? 0));
+                $generalPayment = min($itemDue, $unallocatedPaymentCents);
+                $unallocatedPaymentCents -= $generalPayment;
+                $itemDue -= $generalPayment;
+
+                $itemDue = min($itemDue, max(0, $dueCents - $mappedItemDueCents));
+
+                if ($itemDue > 0) {
+                    $itemDueCents[$item->id] = $itemDue;
+                    $mappedItemDueCents += $itemDue;
+                }
+            }
+        }
+
         $branch = $session->branch;
         $branchMenuId = $branch->uses_shared_menu ? null : $branch->id;
         $categories = $branch->cafe->categories()->where('branch_id', $branchMenuId)->where('is_active', true)
@@ -41,7 +72,7 @@ class TableSessionController extends Controller
             $category->products->filter(fn ($product) => $product->isAvailableAt($branch))->values(),
         ));
 
-        return view('staff.session', compact('session', 'categories'));
+        return view('staff.session', compact('session', 'categories', 'dueCents', 'itemDueCents'));
     }
 
     public function addItems(Request $request, int $sessionId, OrderSettlementService $settlement, ProductOptionSelectionService $optionSelection): RedirectResponse
@@ -168,10 +199,10 @@ class TableSessionController extends Controller
             $locked = TableSession::query()->whereKey($session->id)->lockForUpdate()->firstOrFail();
             abort_unless($locked->status === TableSession::STATUS_OPEN, 409);
 
-            $settlement->settleServedOrders($locked);
+            $settled = $settlement->settleServedOrders($locked);
 
-            $unfinishedOrders = $locked->orders()->whereIn('status', [Order::STATUS_PENDING, Order::STATUS_ACCEPTED])->exists();
-            if ($unfinishedOrders || $locked->dueAmountCents() > 0) {
+            $unfinishedOrders = $locked->orders()->whereNotIn('status', [Order::STATUS_PAID, Order::STATUS_CANCELLED])->exists();
+            if (! $settled || $unfinishedOrders || $locked->dueAmountCents() > 0) {
                 throw ValidationException::withMessages(['session' => 'Masa kapanmadan önce bekleyen siparişleri tamamlayıp adisyonun kalanını tahsil edin.']);
             }
 
@@ -194,7 +225,16 @@ class TableSessionController extends Controller
             ]);
         });
 
-        return redirect()->route('staff.orders')->with('status', 'Masa adisyonu kapatıldı.');
+        return $this->redirectAfterClosure($request, $session)->with('status', 'Masa adisyonu kapatıldı.');
+    }
+
+    private function redirectAfterClosure(Request $request, TableSession $session): RedirectResponse
+    {
+        if ($request->user()?->hasRole(User::ROLE_CAFE_OWNER, User::ROLE_CAFE_MANAGER)) {
+            return redirect()->route('manage.orders.index', ['sube' => $session->branch_id]);
+        }
+
+        return redirect()->route('staff.branch', $session->branch_id);
     }
 
     private static function moneyToCents(string $amount): int

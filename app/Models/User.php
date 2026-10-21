@@ -21,6 +21,8 @@ class User extends Authenticatable
 
     public const ROLE_WAITER = 'waiter';
 
+    public const ROLE_KITCHEN = 'kitchen';
+
     public const ROLE_CUSTOMER = 'customer';
 
     protected $fillable = [

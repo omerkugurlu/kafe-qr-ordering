@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Cafe;
 use App\Models\DiningTable;
+use App\Models\Order;
+use App\Models\Payment;
 use App\Models\User;
 use App\Services\SessionRevocationService;
 use Illuminate\Http\RedirectResponse;
@@ -41,6 +43,45 @@ class CafeController extends Controller
             'activeCafes' => $activeCafes,
             'activeTables' => $activeTables,
             'activeCustomers' => $activeCustomers,
+        ]);
+    }
+
+    public function show(Cafe $cafe): View
+    {
+        $cafe->load([
+            'branches' => fn ($query) => $query
+                ->withCount(['diningTables', 'orders', 'tableSessions'])
+                ->orderBy('name'),
+            'users' => fn ($query) => $query
+                ->whereIn('role', [User::ROLE_CAFE_OWNER, User::ROLE_CAFE_MANAGER, User::ROLE_WAITER, User::ROLE_KITCHEN])
+                ->orderBy('role')
+                ->orderBy('name'),
+        ]);
+
+        $todayRevenue = Payment::query()
+            ->whereNull('voided_at')
+            ->whereDate('recorded_at', today())
+            ->whereHas('tableSession.branch', fn ($query) => $query->where('cafe_id', $cafe->id))
+            ->sum('amount');
+
+        return view('platform.cafe', [
+            'cafe' => $cafe,
+            'owner' => $cafe->users->firstWhere('role', User::ROLE_CAFE_OWNER),
+            'todayOrders' => Order::query()
+                ->whereHas('branch', fn ($query) => $query->where('cafe_id', $cafe->id))
+                ->whereDate('created_at', today())
+                ->count(),
+            'todayRevenue' => (int) round(((float) $todayRevenue) * 100),
+            'customerCount' => Order::query()
+                ->whereNotNull('customer_id')
+                ->whereHas('branch', fn ($query) => $query->where('cafe_id', $cafe->id))
+                ->distinct()
+                ->count('customer_id'),
+            'recentLogs' => ActivityLog::query()
+                ->where('cafe_id', $cafe->id)
+                ->latest()
+                ->limit(8)
+                ->get(),
         ]);
     }
 
@@ -142,7 +183,7 @@ class CafeController extends Controller
             ]);
         });
 
-        return redirect()->route('platform.dashboard')->with('status', 'Kafe bilgileri güncellendi.');
+        return redirect()->route('platform.cafes.show', $cafe)->with('status', 'Kafe bilgileri güncellendi.');
     }
 
     public function updateOwner(Request $request, Cafe $cafe, SessionRevocationService $sessions): RedirectResponse
@@ -190,6 +231,6 @@ class CafeController extends Controller
             ]);
         });
 
-        return redirect()->route('platform.dashboard')->with('status', 'Kafe sahibi giriş bilgileri güncellendi.');
+        return redirect()->route('platform.cafes.show', $cafe)->with('status', 'Kafe sahibi giriş bilgileri güncellendi.');
     }
 }

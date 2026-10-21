@@ -31,10 +31,21 @@ class AuthenticatedSessionController extends Controller
         $request->session()->regenerate();
 
         $user = $request->user();
+
+        if ($user->role === User::ROLE_CUSTOMER) {
+            Auth::logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            throw ValidationException::withMessages([
+                'email' => 'Müşteri girişi yalnızca masanızdaki QR kod üzerinden yapılır.',
+            ]);
+        }
+
         $destination = match ($user->role) {
             User::ROLE_PLATFORM_ADMIN => route('platform.dashboard'),
             User::ROLE_WAITER => route('staff.orders'),
-            User::ROLE_CUSTOMER => route('home'),
+            User::ROLE_KITCHEN => route('staff.kitchen'),
             default => route('manage.dashboard'),
         };
 

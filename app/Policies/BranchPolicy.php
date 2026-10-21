@@ -13,7 +13,7 @@ class BranchPolicy
      */
     public function viewAny(User $user): bool
     {
-        return $user->hasRole(User::ROLE_PLATFORM_ADMIN, User::ROLE_CAFE_OWNER, User::ROLE_CAFE_MANAGER, User::ROLE_WAITER);
+        return $user->hasRole(User::ROLE_PLATFORM_ADMIN, User::ROLE_CAFE_OWNER, User::ROLE_CAFE_MANAGER, User::ROLE_WAITER, User::ROLE_KITCHEN);
     }
 
     /**
@@ -83,6 +83,6 @@ class BranchPolicy
             return true;
         }
 
-        return $user->hasRole(User::ROLE_WAITER) && $user->branches()->whereKey($branch->id)->exists();
+        return $user->hasRole(User::ROLE_WAITER, User::ROLE_KITCHEN) && $user->branches()->whereKey($branch->id)->exists();
     }
 }

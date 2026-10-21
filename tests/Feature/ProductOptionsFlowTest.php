@@ -89,9 +89,10 @@ class ProductOptionsFlowTest extends TestCase
         $this->actingAs($waiter)->post(route('staff.sessions.payments.store', $session->id), [
             'method' => Payment::METHOD_CARD,
             'amount' => '160.00',
-        ])->assertRedirect(route('staff.sessions.show', $session->id));
+        ])->assertRedirect(route('staff.branch', $branch->id));
         $this->assertSame('0.00', $session->fresh()->dueAmount());
         $this->assertSame(Order::STATUS_PAID, $order->fresh()->status);
+        $this->assertSame(TableSession::STATUS_CLOSED, $session->fresh()->status);
         $this->assertDatabaseCount('payments', 2);
     }
 

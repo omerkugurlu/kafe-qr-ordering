@@ -10,8 +10,12 @@ use App\Models\MenuOptionGroup;
 use App\Models\MenuProduct;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class MenuProductController extends Controller
@@ -83,13 +87,7 @@ class MenuProductController extends Controller
     public function store(Request $request, Branch $branch): RedirectResponse
     {
         Gate::authorize('update', $branch);
-        $validated = $request->validate([
-            'category_id' => ['required', 'integer'],
-            'name' => ['required', 'string', 'max:120'],
-            'description' => ['nullable', 'string', 'max:1000'],
-            'price' => ['required', 'numeric', 'min:0', 'max:1000000', 'decimal:0,2'],
-            'is_available' => ['sometimes', 'boolean'],
-        ]);
+        $validated = $this->validateProduct($request, $branch);
         $category = $this->category($branch, (int) $validated['category_id']);
         $branchId = $branch->uses_shared_menu ? null : $branch->id;
         $product = $category->products()->create([
@@ -97,8 +95,12 @@ class MenuProductController extends Controller
             'branch_id' => $branchId,
             'name' => $validated['name'],
             'description' => $validated['description'] ?? null,
+            'image_path' => $this->resolveImage(null, $request->file('image'), $validated['image_url'] ?? null, false),
             'price' => $validated['price'],
+            'prep_minutes' => $validated['prep_minutes'] ?? 0,
             'is_available' => $request->boolean('is_available', true),
+            'is_featured' => $request->boolean('is_featured'),
+            'suggestions' => $this->suggestions($validated['suggestions'] ?? []),
             'sort_order' => MenuProduct::query()->where('category_id', $category->id)->max('sort_order') + 1,
         ]);
         $this->log($request, $branch, $product, 'menu.product_created');
@@ -110,15 +112,24 @@ class MenuProductController extends Controller
     {
         Gate::authorize('update', $branch);
         $product = $this->product($branch, $productId);
-        $validated = $request->validate([
-            'category_id' => ['required', 'integer'],
-            'name' => ['required', 'string', 'max:120'],
-            'description' => ['nullable', 'string', 'max:1000'],
-            'price' => ['required', 'numeric', 'min:0', 'max:1000000', 'decimal:0,2'],
-            'is_available' => ['sometimes', 'boolean'],
-        ]);
+        $validated = $this->validateProduct($request, $branch, $product->id);
         $category = $this->category($branch, (int) $validated['category_id']);
-        $product->fill([...$validated, 'category_id' => $category->id, 'is_available' => $request->boolean('is_available')])->save();
+        $product->fill([
+            'category_id' => $category->id,
+            'name' => $validated['name'],
+            'description' => $validated['description'] ?? null,
+            'image_path' => $this->resolveImage(
+                $product->image_path,
+                $request->file('image'),
+                $validated['image_url'] ?? null,
+                $request->boolean('remove_image'),
+            ),
+            'price' => $validated['price'],
+            'prep_minutes' => $validated['prep_minutes'] ?? 0,
+            'is_available' => $request->boolean('is_available'),
+            'is_featured' => $request->boolean('is_featured'),
+            'suggestions' => $this->suggestions($validated['suggestions'] ?? [], $product->id),
+        ])->save();
         $this->log($request, $branch, $product, 'menu.product_updated');
 
         return redirect()->route('manage.branches.show', $branch)->with('status', 'Ürün güncellendi.');
@@ -177,6 +188,76 @@ class MenuProductController extends Controller
         });
 
         return redirect()->route('manage.branches.show', $branch)->with('status', 'Şube fiyatı ve bulunurluğu güncellendi.');
+    }
+
+    /** @return array<string, mixed> */
+    private function validateProduct(Request $request, Branch $branch, ?int $ignoreId = null): array
+    {
+        return $request->validate([
+            'category_id' => ['required', 'integer'],
+            'name' => ['required', 'string', 'max:120'],
+            'description' => ['nullable', 'string', 'max:1000'],
+            'price' => ['required', 'numeric', 'min:0', 'max:1000000', 'decimal:0,2'],
+            'prep_minutes' => ['nullable', 'integer', 'min:0', 'max:180'],
+            'is_available' => ['sometimes', 'boolean'],
+            'is_featured' => ['sometimes', 'boolean'],
+            'image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'image_url' => ['nullable', 'url', 'max:2048'],
+            'remove_image' => ['sometimes', 'boolean'],
+            'suggestions' => ['nullable', 'array', 'max:6'],
+            'suggestions.*' => [
+                'integer',
+                Rule::exists('menu_products', 'id')->where(function ($query) use ($branch, $ignoreId): void {
+                    $query->where('cafe_id', $branch->cafe_id);
+
+                    if ($ignoreId !== null) {
+                        $query->where('id', '!=', $ignoreId);
+                    }
+                }),
+            ],
+        ]);
+    }
+
+    private function resolveImage(?string $current, ?UploadedFile $file, ?string $url, bool $remove): ?string
+    {
+        if ($file !== null) {
+            $this->deleteLocalImage($current);
+
+            return $file->store('menu', 'public');
+        }
+
+        if ($remove) {
+            $this->deleteLocalImage($current);
+
+            return null;
+        }
+
+        if (filled($url)) {
+            $this->deleteLocalImage($current);
+
+            return $url;
+        }
+
+        return $current;
+    }
+
+    private function deleteLocalImage(?string $path): void
+    {
+        if ($path !== null && $path !== '' && ! Str::startsWith($path, ['http://', 'https://'])) {
+            Storage::disk('public')->delete($path);
+        }
+    }
+
+    /** @param array<int, int|string> $ids
+     *  @return array<int, int> */
+    private function suggestions(array $ids, ?int $ignoreId = null): array
+    {
+        return collect($ids)
+            ->map(fn ($id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0 && $id !== $ignoreId)
+            ->unique()
+            ->values()
+            ->all();
     }
 
     private function category(Branch $branch, int $categoryId): MenuCategory

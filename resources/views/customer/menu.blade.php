@@ -1,158 +1,386 @@
-<x-layouts.app title="{{ $branch->cafe->name }} · Menü">
-    @php($productCount = $categories->sum(fn ($category) => $category->products->count()))
-    <div class="mx-auto max-w-5xl pb-28" data-customer-menu>
-        <header class="relative isolate overflow-hidden rounded-[2rem] bg-[#183c32] px-6 py-8 text-white shadow-xl shadow-[#183c32]/10 sm:px-10 sm:py-11">
-            <div aria-hidden="true" class="absolute -right-12 -top-20 -z-10 size-72 rounded-full bg-[#cbe987]/20 blur-3xl"></div>
-            <div aria-hidden="true" class="absolute -bottom-36 left-1/3 -z-10 size-80 rounded-full bg-[#78a88a]/25 blur-3xl"></div>
-            <div class="flex flex-wrap items-center justify-between gap-4">
-                <p class="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[.18em] text-[#d7efa1]">
-                    <span class="size-2 rounded-full bg-[#d7efa1]"></span>{{ $branch->cafe->brand_name ?: $branch->cafe->name }}
-                </p>
-                @auth<span class="inline-flex min-h-10 items-center rounded-full border border-white/20 px-4 text-xs font-bold text-white/85">{{ auth()->user()->name }}</span>@else<a href="{{ route('login') }}" class="inline-flex min-h-10 items-center rounded-full border border-white/20 px-4 text-xs font-bold text-white/85 transition hover:bg-white/10">Hesabım</a>@endauth
-            </div>
-            <div class="mt-8 max-w-2xl">
-                <p class="text-xs font-bold uppercase tracking-[.2em] text-white/60">Güzel bir mola burada başlar</p>
-                <h1 class="mt-2 font-display text-4xl font-extrabold tracking-tight sm:text-5xl">{{ $branch->cafe->name }}</h1>
-                <p class="mt-3 text-sm text-white/75 sm:text-base">{{ $branch->name }} <span class="mx-1 text-white/35">/</span> {{ $table->name }}</p>
-            </div>
-            <div class="mt-8 flex flex-wrap items-center gap-2 text-xs font-semibold text-white/80">
-                <span class="rounded-full bg-white/10 px-3 py-2">{{ $productCount }} ürün</span>
-                <span class="rounded-full bg-white/10 px-3 py-2">Masaya servis</span>
-                <span class="rounded-full bg-white/10 px-3 py-2">Ödeme garsona</span>
-            </div>
-            @guest
-                @if ($branch->cafe->registration_policy !== 'guest')
-                    <a href="{{ route('customer.register', $table->token()) }}" class="mt-6 inline-flex min-h-11 items-center rounded-xl bg-[#d7efa1] px-4 py-2.5 text-sm font-extrabold text-[#183c32] shadow-sm transition hover:bg-white">Hesap oluştur <span class="ml-2" aria-hidden="true">↗</span></a>
+@php
+    $brand = $cafe->brand_name ?: $cafe->name;
+    $locale = app()->getLocale();
+@endphp
+
+<x-layouts.customer :title="$brand" :cafe="$cafe">
+    <div id="customer-menu" class="min-h-dvh pb-32">
+        <header class="relative">
+            <div class="relative h-56 overflow-hidden bg-forest sm:h-72">
+                @if ($cafe->cover_url)
+                    <img src="{{ $cafe->cover_url }}" alt="{{ $brand }} kapak görseli" class="absolute inset-0 size-full object-cover">
+                @else
+                    <div class="absolute inset-0 bg-gradient-to-br from-forest via-forest-soft to-[#3d2f26]"></div>
+                    <div class="absolute -right-16 -top-24 size-72 rounded-full border border-white/10"></div>
+                    <div class="absolute -bottom-28 left-10 size-80 rounded-full border border-amber/20"></div>
+                    <div class="absolute inset-0 grain opacity-40"></div>
                 @endif
-            @endguest
+                <div class="absolute inset-0 bg-gradient-to-t from-ink/90 via-ink/35 to-ink/25"></div>
+                <div class="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-ink/70 to-transparent"></div>
+
+                <div class="relative z-10 mx-auto flex max-w-6xl items-start justify-between gap-4 px-4 py-4 sm:px-6">
+                    <a href="{{ route('customer.menu', $token) }}" class="flex min-w-0 items-center gap-3 text-white">
+                        @if ($cafe->logo_url)
+                            <img src="{{ $cafe->logo_url }}" alt="" class="size-11 shrink-0 rounded-2xl object-cover ring-1 ring-white/30">
+                        @else
+                            <span class="grid size-11 shrink-0 place-items-center rounded-2xl bg-white/10 text-amber ring-1 ring-white/20 backdrop-blur">
+                                <svg viewBox="0 0 24 24" class="size-6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 8l8 14 8-14-8-6Z"/><path d="M4 8h16M12 2v20" opacity=".35"/></svg>
+                            </span>
+                        @endif
+                        <span class="min-w-0 leading-tight">
+                            <span class="block truncate font-display text-lg font-semibold">{{ $brand }}</span>
+                            <span class="mt-0.5 block truncate text-[10px] font-bold uppercase tracking-[.2em] text-white/65">{{ $branch->name }}</span>
+                        </span>
+                    </a>
+
+                    <div class="flex shrink-0 items-center gap-2">
+                        <div class="flex items-center rounded-full border border-white/20 bg-white/10 p-0.5 text-[10px] font-bold text-white backdrop-blur">
+                            <a href="{{ route('locale.switch', ['locale' => 'tr']) }}" class="rounded-full px-2 py-1 {{ $locale === 'tr' ? 'bg-white text-ink' : 'text-white/75 hover:text-white' }}">TR</a>
+                            <a href="{{ route('locale.switch', ['locale' => 'en']) }}" class="rounded-full px-2 py-1 {{ $locale === 'en' ? 'bg-white text-ink' : 'text-white/75 hover:text-white' }}">EN</a>
+                        </div>
+
+                        @if ($customer !== null)
+                            <span class="hidden max-w-32 truncate rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-[11px] font-bold text-white backdrop-blur sm:block">{{ $customer->name }}</span>
+                            <form method="post" action="{{ route('logout') }}">
+                                @csrf
+                                <button type="submit" class="grid size-11 place-items-center rounded-full border border-white/20 bg-white/10 text-white backdrop-blur transition hover:bg-white/20" aria-label="{{ __('customer.logout') }}" title="{{ __('customer.logout') }}">
+                                    <x-ui.icon name="logout" class="size-4" />
+                                </button>
+                            </form>
+                        @elseif (auth()->check())
+                            <form method="post" action="{{ route('logout') }}">
+                                @csrf
+                                <button type="submit" class="min-h-11 rounded-full border border-white/20 bg-white/10 px-3 text-[11px] font-bold text-white backdrop-blur transition hover:bg-white/20">{{ __('customer.logout') }}</button>
+                            </form>
+                        @elseif ($cafe->registration_policy !== \App\Models\Cafe::POLICY_GUEST)
+                            <a href="{{ route('customer.login', $token) }}" class="rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-[11px] font-bold text-white backdrop-blur transition hover:bg-white/20">{{ __('customer.login') }}</a>
+                        @endif
+                    </div>
+                </div>
+
+                <div class="absolute inset-x-0 bottom-0">
+                    <div class="mx-auto max-w-6xl px-4 pb-7 sm:px-6">
+                        <div class="flex items-end gap-4">
+                            @if ($cafe->logo_url)
+                                <img src="{{ $cafe->logo_url }}" alt="" class="hidden size-20 shrink-0 rounded-3xl object-cover shadow-lift ring-4 ring-cream/20 sm:block">
+                            @endif
+                            <div class="min-w-0">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <span class="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[.14em] text-white/80 backdrop-blur">
+                                        <span class="size-1.5 rounded-full bg-success"></span>
+                                        {{ __('customer.brand_tagline') }}
+                                    </span>
+                                </div>
+                                <h1 class="mt-2 font-display text-3xl font-semibold tracking-tight text-white text-balance sm:text-5xl">{{ $brand }}</h1>
+                                @if ($cafe->description)
+                                    <p class="mt-2 max-w-2xl text-sm leading-relaxed text-white/75 sm:text-base">{{ $cafe->description }}</p>
+                                @endif
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </header>
 
-        @if ($campaigns->isNotEmpty())
-            <section class="mt-7" aria-labelledby="campaign-title">
-                <div class="mb-3 flex items-end justify-between gap-3 px-1">
-                    <div><p class="text-[11px] font-extrabold uppercase tracking-[.18em] text-[#c16c46]">Güzel sürprizler</p><h2 id="campaign-title" class="mt-1 font-display text-xl font-extrabold">Kampanyalar</h2></div>
-                    @if ($loyaltyAccount)<span class="rounded-full bg-[#e7f1d5] px-3 py-1.5 text-xs font-bold text-[#285c47]">{{ $loyaltyAccount->points }} puan</span>@endif
+        <div class="relative z-10 mx-auto -mt-5 max-w-6xl px-4 sm:px-6">
+            <div class="grid grid-cols-2 gap-2 rounded-3xl border border-line bg-paper p-2 shadow-soft sm:grid-cols-4">
+                <div class="flex items-center gap-2 rounded-2xl bg-cream px-3 py-2.5">
+                    <span class="grid size-8 shrink-0 place-items-center rounded-full bg-forest text-white"><x-ui.icon name="table" class="size-4" /></span>
+                    <div class="min-w-0"><p class="text-[9px] font-bold uppercase tracking-[.14em] text-muted">{{ __('customer.table') }}</p><p class="truncate text-xs font-bold text-ink">{{ $table->name }}</p></div>
                 </div>
-                <div class="flex snap-x gap-3 overflow-x-auto pb-2">
-                    @foreach ($campaigns as $campaign)
-                        <article class="min-w-[min(82vw,19rem)] snap-start rounded-2xl border border-[#285c47]/10 bg-[#eef4df] p-4 sm:min-w-72">
-                            <div class="flex items-start justify-between gap-3"><h3 class="font-display font-extrabold">{{ $campaign->name }}</h3><span class="shrink-0 rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-extrabold text-[#285c47]">{{ $campaign->reward_type === 'percent' ? number_format((float) $campaign->reward_value, 0, ',', '.').'%' : '₺'.number_format((float) $campaign->reward_value, 2, ',', '.') }}</span></div>
-                            <p class="mt-2 text-xs leading-5 text-[#456156]">@if($campaign->type === 'order_count'){{ $campaign->threshold }} tamamlanmış sipariş sonrası indirim ödülü kazanırsınız.@else{{ $campaign->requiredPoints() }} puanla bu ödülü kullanabilirsiniz.@endif</p>
-                            @if (! auth()->check())<p class="mt-3 text-[11px] font-bold text-[#285c47]">Puan ve ödül için müşteri hesabı gerekir.</p>@endif
+                <a href="{{ route('customer.bill', $token) }}" class="flex items-center gap-2 rounded-2xl bg-cream px-3 py-2.5 transition hover:bg-sage/60">
+                    <span class="grid size-8 shrink-0 place-items-center rounded-full bg-paper text-forest"><x-ui.icon name="receipt" class="size-4" /></span>
+                    <div class="min-w-0"><p class="text-[9px] font-bold uppercase tracking-[.14em] text-muted">{{ __('customer.bill') }}</p><p class="truncate text-xs font-bold text-ink">{{ __('customer.view_live_bill') }}</p></div>
+                </a>
+                <button type="button" data-service-request="waiter" data-service-url="{{ route('customer.call', $token) }}" class="flex items-center gap-2 rounded-2xl bg-cream px-3 py-2.5 text-left transition hover:bg-sage/60">
+                    <span class="grid size-8 shrink-0 place-items-center rounded-full bg-paper text-forest"><x-ui.icon name="bell" class="size-4" /></span>
+                    <div class="min-w-0"><p class="text-[9px] font-bold uppercase tracking-[.14em] text-muted">{{ __('customer.service') }}</p><p class="truncate text-xs font-bold text-ink">{{ __('customer.call_waiter') }}</p></div>
+                </button>
+                <button type="button" data-service-request="bill" data-service-url="{{ route('customer.call', $token) }}" class="flex items-center gap-2 rounded-2xl bg-cream px-3 py-2.5 text-left transition hover:bg-sage/60">
+                    <span class="grid size-8 shrink-0 place-items-center rounded-full bg-paper text-forest"><x-ui.icon name="wallet" class="size-4" /></span>
+                    <div class="min-w-0"><p class="text-[9px] font-bold uppercase tracking-[.14em] text-muted">{{ __('customer.payment') }}</p><p class="truncate text-xs font-bold text-ink">{{ __('customer.request_bill') }}</p></div>
+                </button>
+            </div>
+        </div>
+
+        <div class="mx-auto mt-4 max-w-6xl px-4 sm:px-6">
+            <x-ui.flash />
+        </div>
+
+        @if ($loyaltyTeaser)
+            <section class="mx-auto mt-4 max-w-6xl px-4 sm:px-6">
+                <div class="relative overflow-hidden rounded-3xl border border-amber/30 bg-gradient-to-r from-amber-soft via-paper to-sage/60 p-4 shadow-soft sm:p-5">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div class="flex items-start gap-3">
+                            <span class="grid size-11 shrink-0 place-items-center rounded-2xl bg-forest text-amber shadow-soft">
+                                <x-ui.icon name="star" class="size-5" />
+                            </span>
+                            <div>
+                                <p class="font-display text-lg font-semibold text-ink">{{ __('customer.loyalty_teaser_title') }}</p>
+                                <p class="mt-0.5 text-sm leading-6 text-muted">{{ __('customer.loyalty_teaser_body') }}</p>
+                            </div>
+                        </div>
+                        <a href="{{ route('customer.register', $token) }}" class="btn btn-primary shrink-0">
+                            {{ __('customer.loyalty_teaser_cta') }}
+                            <x-ui.icon name="arrow-right" class="size-4" />
+                        </a>
+                    </div>
+                </div>
+            </section>
+        @endif
+
+        @if ($announcements->isNotEmpty())
+            <section class="mx-auto mt-4 max-w-6xl px-4 sm:px-6" aria-labelledby="announcements-title">
+                <div class="mb-2 flex items-center justify-between gap-3">
+                    <h2 id="announcements-title" class="font-display text-xl font-semibold text-ink">{{ __('customer.announcements') }}</h2>
+                    <span class="text-[11px] font-bold uppercase tracking-[.14em] text-muted">{{ $announcements->count() }} {{ __('customer.announcement') }}</span>
+                </div>
+                <div class="scroll-hidden flex snap-x gap-3 overflow-x-auto pb-1">
+                    @foreach ($announcements as $announcement)
+                        <article class="relative w-[86%] shrink-0 snap-start overflow-hidden rounded-3xl border border-line bg-paper p-4 shadow-soft sm:w-[48%] lg:w-[32%]">
+                            <div class="pointer-events-none absolute -right-8 -top-8 size-24 rounded-full {{ $announcement->type === 'campaign' ? 'bg-amber/15' : ($announcement->type === 'event' ? 'bg-sage' : 'bg-cream') }}"></div>
+                            <div class="relative flex items-center gap-2">
+                                <span class="grid size-8 place-items-center rounded-full bg-forest text-amber">
+                                    <x-ui.icon :name="$announcement->type === 'event' ? 'calendar' : ($announcement->type === 'campaign' ? 'ticket' : 'bell')" class="size-4" />
+                                </span>
+                                <span class="text-[10px] font-bold uppercase tracking-[.14em] text-terracotta">{{ __('customer.'.$announcement->type) }}</span>
+                            </div>
+                            <h3 class="relative mt-3 font-display text-lg font-semibold leading-snug text-ink">{{ $announcement->title }}</h3>
+                            @if ($announcement->body)
+                                <p class="relative mt-1 line-clamp-3 text-sm leading-6 text-muted">{{ $announcement->body }}</p>
+                            @endif
+                            @if ($announcement->starts_at || $announcement->ends_at)
+                                <p class="relative mt-3 text-[11px] font-semibold text-muted">
+                                    {{ $announcement->starts_at?->format('d.m.Y H:i') ?? 'Hemen' }}
+                                    @if ($announcement->ends_at)
+                                        – {{ $announcement->ends_at->format('d.m.Y H:i') }}
+                                    @endif
+                                </p>
+                            @endif
                         </article>
                     @endforeach
                 </div>
             </section>
         @endif
 
-        @if ($loyaltyAccount)
-            <aside class="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#285c47]/10 bg-white px-4 py-3.5 shadow-sm">
-                <div><p class="text-sm font-extrabold">Sadakat bakiyen</p><p class="mt-0.5 text-xs text-muted">{{ $loyaltyAccount->completed_order_count }} tamamlanmış sipariş · {{ $loyaltyAccount->points }} puan</p></div>
-                <span class="grid size-10 place-items-center rounded-full bg-[#d7efa1] text-lg" aria-hidden="true">✳</span>
-            </aside>
-        @endif
+        <div id="session-banner" hidden class="mt-3 border-y border-sage-deep/60 bg-sage/50"></div>
 
-        @if ($popularProducts->isNotEmpty())
-            <section class="mt-8" aria-labelledby="popular-title">
-                <div class="mb-3 px-1"><p class="text-[11px] font-extrabold uppercase tracking-[.18em] text-[#c16c46]">Misafirlerin favorisi</p><h2 id="popular-title" class="mt-1 font-display text-xl font-extrabold">En çok tercih edilenler</h2></div>
-                <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    @foreach ($popularProducts as $product)
-                        <a href="#product-{{ $product->id }}" class="group rounded-2xl border border-ink/10 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-[#285c47]/30 hover:shadow-md">
-                            <span class="grid size-10 place-items-center rounded-xl bg-[#eef4df] text-lg" aria-hidden="true">☕</span>
-                            <span class="mt-3 block font-bold group-hover:text-[#285c47]">{{ $product->name }}</span>
-                            <span class="mt-1 block text-sm text-muted">₺{{ number_format((float) $product->priceFor($branch), 2, ',', '.') }}</span>
-                        </a>
-                    @endforeach
+        <div class="sticky top-0 z-30 mt-4 border-y border-line/70 bg-cream/90 backdrop-blur-xl">
+            <div class="mx-auto max-w-6xl px-4 py-3 sm:px-6">
+                <label class="relative block" for="menu-search">
+                    <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted">
+                        <x-ui.icon name="search" class="size-5" />
+                    </span>
+                    <input id="menu-search" type="search" class="input h-12 pl-12 pr-4" placeholder="{{ __('customer.search_placeholder') }}" autocomplete="off">
+                </label>
+                <div id="category-chips" class="scroll-hidden mt-3 flex gap-2 overflow-x-auto pb-0.5" aria-label="{{ __('customer.menu') }}"></div>
+            </div>
+        </div>
+
+        <section id="featured-section" class="mx-auto max-w-6xl px-4 pt-7 sm:px-6">
+            <div class="mb-3 flex items-end justify-between gap-3">
+                <div>
+                    <p class="eyebrow">{{ __('customer.recommended') }}</p>
+                    <h2 class="mt-0.5 font-display text-xl font-semibold tracking-tight text-ink sm:text-2xl">{{ __('customer.popular') }}</h2>
+                </div>
+                <span class="text-[11px] font-bold uppercase tracking-[.14em] text-muted">{{ $brand }}</span>
+            </div>
+            <div id="featured-products" class="scroll-hidden -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0"></div>
+        </section>
+
+        <div id="menu-empty" hidden class="mx-auto max-w-6xl px-4 py-12 sm:px-6">
+            <x-ui.empty-state icon="search" :title="__('customer.search_empty')" :description="__('customer.search_placeholder')" />
+        </div>
+
+        <main id="menu-sections" class="mx-auto max-w-6xl space-y-10 px-4 py-7 sm:px-6"></main>
+        <main id="search-results" hidden class="mx-auto grid max-w-6xl gap-3 px-4 py-7 sm:grid-cols-2 sm:px-6 xl:grid-cols-3"></main>
+
+        <footer class="mt-4 border-t border-line bg-paper">
+            <div class="mx-auto grid max-w-6xl gap-5 px-4 py-8 sm:grid-cols-3 sm:px-6">
+                <div class="sm:col-span-2">
+                    <p class="font-display text-lg font-semibold text-ink">{{ $brand }}</p>
+                    <p class="mt-1 text-sm text-muted">{{ $branch->address ?: $cafe->address }}</p>
+                    <div class="mt-3 flex flex-wrap items-center gap-3 text-xs font-semibold text-ink-soft">
+                        @if ($cafe->phone)
+                            <a href="tel:{{ $cafe->phone }}" class="inline-flex items-center gap-1.5 rounded-full border border-line bg-cream px-3 py-1.5"><x-ui.icon name="phone" class="size-3.5" />{{ $cafe->phone }}</a>
+                        @endif
+                        @if ($cafe->instagram)
+                            <a href="https://instagram.com/{{ ltrim($cafe->instagram, '@') }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 rounded-full border border-line bg-cream px-3 py-1.5"><x-ui.icon name="instagram" class="size-3.5" />{{ '@'.ltrim($cafe->instagram, '@') }}</a>
+                        @endif
+                    </div>
+                </div>
+                <div class="text-xs text-muted sm:text-right">
+                    <p class="font-bold uppercase tracking-[.18em] text-ink-soft">SkyKite</p>
+                    <p class="mt-1">{{ __('customer.brand_tagline') }}</p>
+                    <a href="https://skykite.com.tr/?utm_source=masa_qr&amp;utm_medium=menu&amp;utm_campaign=cross_promotion" target="_blank" rel="noopener noreferrer" class="mt-3 inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-line bg-cream px-4 font-bold text-forest transition hover:border-forest/30 hover:bg-sage/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-forest">
+                        {{ __('customer.brand_promo_cta') }}
+                        <x-ui.icon name="arrow-up-right" class="size-3.5" />
+                    </a>
+                    <p class="mt-2 max-w-64 sm:ml-auto">{{ __('customer.brand_promo_title') }}</p>
+                    @guest
+                        <a href="{{ route('customer.register', $token) }}" class="mt-2 inline-block font-bold text-forest underline decoration-amber decoration-2 underline-offset-4">{{ __('customer.register') }}</a>
+                    @endguest
+                </div>
+            </div>
+        </footer>
+
+        <div id="cart-bar" hidden class="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-paper/95 pb-[env(safe-area-inset-bottom)] shadow-bar backdrop-blur-xl">
+            <div class="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
+                <span class="relative grid size-11 shrink-0 place-items-center rounded-full bg-forest text-white">
+                    <x-ui.icon name="bag" class="size-5" />
+                    <span data-cart-count class="absolute -right-1 -top-1 grid min-w-5 place-items-center rounded-full bg-amber px-1 text-[10px] font-bold text-ink">0</span>
+                </span>
+                <div class="min-w-0 flex-1">
+                    <p class="text-[10px] font-bold uppercase tracking-[.16em] text-muted">{{ __('customer.total') }}</p>
+                    <p class="font-display text-lg font-semibold text-ink" data-cart-total>₺0,00</p>
+                </div>
+                <button type="button" class="btn-primary" data-cart-open>
+                    {{ __('customer.view_cart') }}
+                    <span data-cart-count class="grid min-w-5 place-items-center rounded-full bg-white/20 px-1 text-[10px]">0</span>
+                </button>
+            </div>
+        </div>
+
+        {{-- Product sheet --}}
+        <div data-sheet="product" hidden>
+            <div class="sheet-backdrop" data-sheet-close></div>
+            <section class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="product-sheet-title">
+                <div id="product-sheet-body"></div>
+            </section>
+        </div>
+
+        {{-- Upsell sheet --}}
+        <div data-sheet="upsell" hidden>
+            <div class="sheet-backdrop" data-sheet-close></div>
+            <section class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="upsell-title">
+                <div class="p-5 pb-8">
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <p class="eyebrow">{{ __('customer.suggestions_title') }}</p>
+                            <h2 id="upsell-title" class="mt-1 font-display text-xl font-semibold tracking-tight text-ink">{{ __('customer.suggestions_title') }}</h2>
+                            <p class="mt-1 text-sm text-muted">{{ __('customer.suggestions_hint') }}</p>
+                        </div>
+                        <button type="button" class="btn-icon shrink-0" data-sheet-close aria-label="{{ __('customer.close') }}"><x-ui.icon name="x" class="size-4" /></button>
+                    </div>
+                    <div id="upsell-body" class="mt-4 space-y-2"></div>
+                    <div class="mt-5 grid grid-cols-2 gap-2">
+                        <button type="button" class="btn-secondary" data-sheet-close>{{ __('customer.skip') }}</button>
+                        <button type="button" class="btn-primary" data-upsell-cart>{{ __('customer.view_cart') }}</button>
+                    </div>
                 </div>
             </section>
-        @endif
+        </div>
 
-        <section class="mt-9" aria-labelledby="menu-title">
-            <div class="flex flex-wrap items-end justify-between gap-3 px-1">
-                <div><p class="text-[11px] font-extrabold uppercase tracking-[.18em] text-[#c16c46]">Sana özel hazırlandı</p><h2 id="menu-title" class="mt-1 font-display text-2xl font-extrabold">Menüyü keşfet</h2></div>
-                <span class="rounded-full border border-ink/10 bg-white px-3 py-1.5 text-xs font-bold text-muted">{{ $productCount }} lezzet</span>
-            </div>
+        {{-- Cart drawer --}}
+        <div data-drawer="cart" hidden>
+            <div data-drawer-backdrop class="fixed inset-0 z-40 hidden bg-ink/45 backdrop-blur-[2px]" data-drawer-close></div>
+            <aside class="drawer-panel z-50" role="dialog" aria-modal="true" aria-labelledby="cart-title">
+                <header class="flex items-center justify-between gap-3 border-b border-line px-4 py-4">
+                    <div>
+                        <p class="text-[10px] font-bold uppercase tracking-[.18em] text-muted">{{ $table->name }}</p>
+                        <h2 id="cart-title" class="font-display text-xl font-semibold text-ink">{{ __('customer.cart') }}</h2>
+                    </div>
+                    <button type="button" class="btn-icon" data-drawer-close aria-label="{{ __('customer.close') }}"><x-ui.icon name="x" class="size-4" /></button>
+                </header>
+                <div id="cart-body" class="flex-1 overflow-y-auto p-4"></div>
+                <div id="cart-footer" class="border-t border-line bg-paper p-4" hidden>
+                    <form id="coupon-form" class="flex gap-2">
+                        <label class="relative min-w-0 flex-1" for="coupon-code">
+                            <span class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted"><x-ui.icon name="ticket" class="size-4" /></span>
+                            <input id="coupon-code" type="text" inputmode="text" autocomplete="off" class="input h-11 pl-10 text-xs uppercase tracking-[.08em]" placeholder="{{ __('customer.coupon_placeholder') }}">
+                        </label>
+                        <button type="submit" class="btn-secondary btn-sm shrink-0">{{ __('customer.apply') }}</button>
+                    </form>
+                    <div id="coupon-status" hidden class="mt-2 flex items-center justify-between gap-2 rounded-xl bg-cream px-3 py-2">
+                        <span id="coupon-status-text" class="flex-1 text-xs font-bold text-success"></span>
+                        <button type="button" class="text-[11px] font-bold text-danger underline underline-offset-2" data-coupon-remove>{{ __('customer.remove') }}</button>
+                    </div>
+                    <p id="coupon-message" hidden class="mt-2 text-xs font-bold text-danger"></p>
 
-            <nav class="sticky top-0 z-20 -mx-5 mt-4 flex snap-x gap-2 overflow-x-auto border-y border-ink/5 bg-cream/90 px-5 py-3 backdrop-blur sm:-mx-8 sm:px-8" aria-label="Menü kategorileri">
-                @foreach ($categories as $category)
-                    @if ($category->products->isNotEmpty())<a href="#category-{{ $category->id }}" class="min-h-10 shrink-0 snap-start rounded-full border border-ink/10 bg-white px-4 py-2 text-xs font-bold transition hover:border-[#285c47]/30 hover:bg-[#eef4df]">{{ $category->name }}</a>@endif
-                @endforeach
-            </nav>
+                    <div id="loyalty-box" hidden class="mt-3 rounded-2xl border border-amber/40 bg-amber-soft/35 p-3">
+                        <div class="flex items-center justify-between gap-2">
+                            <p class="flex items-center gap-1.5 text-xs font-bold text-ink"><x-ui.icon name="sparkles" class="size-4 text-[#8a5a14]" /> {{ __('customer.loyalty_title') }}</p>
+                            <span id="loyalty-points" class="rounded-full bg-paper px-2 py-0.5 text-[10px] font-bold text-[#8a5a14]"></span>
+                        </div>
+                        <div id="loyalty-options" class="mt-2 space-y-1.5"></div>
+                        <p id="loyalty-note" class="mt-2 text-[11px] font-semibold leading-4 text-[#7a4f12]">{{ __('customer.loyalty_coupon_conflict') }}</p>
+                    </div>
 
-            <form method="post" action="{{ route('customer.orders.store', $table->token()) }}" class="mt-4 space-y-8" data-customer-menu>
-                @csrf
-                @forelse ($categories as $category)
-                    @if ($category->products->isNotEmpty())
-                        <section id="category-{{ $category->id }}" class="scroll-mt-20" aria-labelledby="category-title-{{ $category->id }}">
-                            <div class="mb-3 flex items-end justify-between gap-3 px-1"><div><h3 id="category-title-{{ $category->id }}" class="font-display text-xl font-extrabold">{{ $category->name }}</h3>@if($category->description)<p class="mt-1 text-xs text-muted">{{ $category->description }}</p>@endif</div><span class="text-xs font-semibold text-muted">{{ $category->products->count() }} ürün</span></div>
-                            <div class="grid gap-3">
-                                @foreach ($category->products as $product)
-                                    <article id="product-{{ $product->id }}" class="scroll-mt-24 rounded-2xl border border-ink/10 bg-white p-4 shadow-sm sm:p-5" data-product-card data-base-price="{{ number_format((float) $product->priceFor($branch), 2, '.', '') }}">
-                                        <div class="flex items-start gap-3">
-                                            <div class="grid size-11 shrink-0 place-items-center rounded-2xl bg-[#eef4df] text-xl" aria-hidden="true">{{ str_contains(mb_strtolower($category->name), 'tatlı') ? '🍰' : (str_contains(mb_strtolower($category->name), 'soğuk') ? '🧊' : '☕') }}</div>
-                                            <div class="min-w-0 flex-1">
-                                                <div class="flex flex-wrap items-start justify-between gap-2"><h4 class="font-display text-base font-extrabold">{{ $product->name }}</h4><strong data-current-unit-price class="shrink-0 font-display text-base font-extrabold text-[#285c47]">₺{{ number_format((float) $product->priceFor($branch), 2, ',', '.') }}</strong></div>
-                                                @if ($product->description)<p class="mt-1 max-w-2xl text-xs leading-5 text-muted">{{ $product->description }}</p>@endif
-                                                @if ($product->optionGroups->isNotEmpty())
-                                                    <details class="mt-3 rounded-xl bg-[#f7f8f3] px-3 py-2.5">
-                                                        <summary class="min-h-8 cursor-pointer list-none text-xs font-extrabold text-[#285c47]"><span>Ürünü kişiselleştir</span><span class="ml-1 font-medium text-muted">· {{ $product->optionGroups->count() }} seçenek grubu</span></summary>
-                                                        <div class="mt-3 space-y-3">
-                                                            @foreach ($product->optionGroups as $group)
-                                                                @php($availableOptions = $group->options)
-                                                                <fieldset class="border-t border-ink/5 pt-3" data-option-group data-min-selections="{{ $group->min_selections }}" data-max-selections="{{ $group->max_selections ?? $availableOptions->count() }}">
-                                                                    <legend class="mb-2 flex w-full items-center justify-between gap-2 text-xs font-bold"><span>{{ $group->name }}</span><span class="text-[10px] font-semibold text-muted">{{ $group->min_selections > 0 ? 'Zorunlu' : 'İsteğe bağlı' }} · {{ $group->selection_mode === 'single' ? 'tek seçim' : 'çoklu seçim' }}</span></legend>
-                                                                    @if ($group->selection_mode === 'single')
-                                                                        <label class="sr-only" for="option-group-{{ $group->id }}-{{ $product->id }}">{{ $group->name }}</label>
-                                                                        <select id="option-group-{{ $group->id }}-{{ $product->id }}" name="options[{{ $product->id }}][{{ $group->id }}]" data-option-single class="min-h-11 w-full rounded-xl border border-ink/10 bg-white px-3 py-2 text-sm focus:border-[#285c47] focus:outline-none">
-                                                                            <option value="" data-price-delta="0">{{ $group->min_selections > 0 ? 'Bir seçenek seçin' : 'Ekstra istemiyorum' }}</option>
-                                                                            @foreach ($availableOptions as $option)
-                                                                                <option value="{{ $option->id }}" data-price-delta="{{ number_format((float) $option->price_delta, 2, '.', '') }}">{{ $option->name }}@if ((float) $option->price_delta > 0) · +₺{{ number_format((float) $option->price_delta, 2, ',', '.') }}@else · Ücretsiz @endif</option>
-                                                                            @endforeach
-                                                                        </select>
-                                                                    @else
-                                                                        <div class="grid gap-1 sm:grid-cols-2">
-                                                                            @foreach ($availableOptions as $option)
-                                                                                <label class="flex min-h-11 items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-xs transition hover:bg-white"><span class="flex min-w-0 items-center gap-2"><input type="checkbox" name="options[{{ $product->id }}][{{ $group->id }}][]" value="{{ $option->id }}" data-option-checkbox data-price-delta="{{ number_format((float) $option->price_delta, 2, '.', '') }}" class="size-4 shrink-0 rounded border-ink/20 accent-[#285c47]"><span class="font-semibold">{{ $option->name }}</span></span><span class="shrink-0 text-muted">{{ (float) $option->price_delta > 0 ? '+₺'.number_format((float) $option->price_delta, 2, ',', '.') : 'Ücretsiz' }}</span></label>
-                                                                            @endforeach
-                                                                        </div>
-                                                                    @endif
-                                                                    <p data-option-limit-message class="mt-1 hidden text-[11px] font-semibold text-red-700" role="alert"></p>
-                                                                </fieldset>
-                                                            @endforeach
-                                                        </div>
-                                                    </details>
-                                                @endif
-                                                <div class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-ink/5 pt-3">
-                                                    <p class="text-xs text-muted"><span data-current-line-total>₺0,00</span> <span class="text-[10px]">seçilen adet toplamı</span></p>
-                                                    <div class="flex items-center gap-2 rounded-full border border-ink/10 bg-[#fafbf7] p-1">
-                                                        <button type="button" data-quantity-change="-1" class="grid size-9 place-items-center rounded-full text-lg font-bold text-[#285c47] hover:bg-[#eef4df]" aria-label="{{ $product->name }} adedini azalt">−</button>
-                                                        <label class="sr-only" for="product-quantity-{{ $product->id }}">{{ $product->name }} adedi</label>
-                                                        <input id="product-quantity-{{ $product->id }}" data-product-quantity type="number" name="items[{{ $product->id }}]" value="0" min="0" max="20" inputmode="numeric" class="w-9 border-0 bg-transparent p-0 text-center text-sm font-extrabold outline-none">
-                                                        <button type="button" data-quantity-change="1" class="grid size-9 place-items-center rounded-full bg-[#d7efa1] text-lg font-bold text-[#183c32] hover:bg-[#c7e77f]" aria-label="{{ $product->name }} adedini artır">+</button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </article>
-                                @endforeach
-                            </div>
-                        </section>
-                    @endif
-                @empty
-                    <div class="rounded-3xl border border-dashed border-ink/15 bg-white p-9 text-center"><span class="text-3xl" aria-hidden="true">☕</span><h3 class="mt-3 font-display font-extrabold">Menü hazırlanıyor</h3><p class="mt-1 text-sm text-muted">Bu kafede henüz satışta ürün yok.</p></div>
-                @endforelse
+                    <div class="mt-3 space-y-1.5 border-t border-line pt-3 text-sm">
+                        <div class="flex items-center justify-between"><span class="text-muted">{{ __('customer.subtotal') }}</span><span class="font-semibold text-ink" data-cart-subtotal>₺0,00</span></div>
+                        <div class="flex items-center justify-between" data-cart-discount-row hidden><span class="text-muted">{{ __('customer.discount') }}</span><span class="font-semibold text-success" data-cart-discount>−₺0,00</span></div>
+                        <div class="flex items-center justify-between pt-1"><span class="font-bold text-ink">{{ __('customer.total') }}</span><span class="font-display text-xl font-semibold text-forest" data-cart-total-line>₺0,00</span></div>
+                    </div>
 
-                @if ($redeemableCampaigns->isNotEmpty())
-                    <label class="block rounded-2xl border border-[#285c47]/10 bg-[#eef4df] p-4"><span class="block text-sm font-extrabold">Sadakat ödülünü kullan</span><span class="mt-1 block text-xs text-muted">Ödül ürün seçenekleri eklendikten sonra hesaplanır.</span><select name="loyalty_campaign_id" class="mt-3 min-h-11 w-full rounded-xl border border-ink/10 bg-white px-3 py-2 text-sm"><option value="">Bu siparişte ödül kullanma</option>@foreach($redeemableCampaigns as $campaign)<option value="{{ $campaign->id }}">{{ $campaign->name }} · {{ $campaign->reward_type === 'percent' ? number_format((float) $campaign->reward_value, 0, ',', '.').'%' : '₺'.number_format((float) $campaign->reward_value, 2, ',', '.') }} indirim</option>@endforeach</select></label>
-                @endif
-                <label class="block"><span class="mb-2 block text-sm font-bold">Sipariş notu <span class="font-normal text-muted">(isteğe bağlı)</span></span><textarea name="customer_note" maxlength="500" rows="2" class="w-full resize-y rounded-xl border border-ink/10 bg-white px-4 py-3 text-sm outline-none focus:border-[#285c47]" placeholder="Örn. şekersiz olsun"></textarea></label>
+                    <label for="cart-note" class="label mt-4">{{ __('customer.order_note') }}</label>
+                    <textarea id="cart-note" rows="2" maxlength="500" class="input resize-none text-xs" placeholder="{{ __('customer.note_placeholder') }}"></textarea>
 
-                <div class="fixed inset-x-0 bottom-0 z-30 border-t border-ink/10 bg-white/95 px-4 py-3 shadow-[0_-8px_30px_rgb(25_52_43_/_8%)] backdrop-blur sm:bottom-4 sm:left-auto sm:right-6 sm:w-[min(28rem,calc(100%-3rem))] sm:rounded-2xl sm:border">
-                    <div class="mx-auto flex max-w-5xl items-center gap-3 sm:max-w-none"><div class="min-w-0 flex-1"><p class="text-[10px] font-bold uppercase tracking-wide text-muted">Sepet · <span data-cart-count>0</span> ürün</p><p data-cart-total class="mt-0.5 font-display text-xl font-extrabold">₺0,00</p></div><button data-submit-order type="submit" disabled class="min-h-12 flex-1 rounded-xl bg-[#285c47] px-4 py-3 text-sm font-extrabold text-white transition hover:bg-[#183c32] disabled:cursor-not-allowed disabled:opacity-45">Siparişi gönder <span aria-hidden="true">→</span></button></div>
-                    <p data-cart-error class="mx-auto mt-1 hidden max-w-5xl text-center text-[10px] font-semibold text-red-700 sm:max-w-none" role="alert"></p><p class="mx-auto mt-1 max-w-5xl text-center text-[10px] text-muted sm:max-w-none">Ödeme masada garsonunuza yapılır.</p>
+                    <button type="button" class="btn-primary mt-3 w-full" data-checkout>{{ __('customer.confirm_order') }}</button>
+                    <p class="mt-2 text-center text-[11px] font-medium text-muted">{{ __('customer.pay_at_counter') }}</p>
                 </div>
-            </form>
-        </section>
-        <p class="mt-10 border-t border-ink/10 pt-5 text-center text-[11px] text-muted">Menü ve masada sipariş <span class="font-bold text-[#285c47]">SkyKite</span> ile.</p>
+            </aside>
+        </div>
+
+        {{-- Confirmation sheet --}}
+        <div data-sheet="confirm" hidden>
+            <div class="sheet-backdrop" data-sheet-close></div>
+            <section class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+                <div class="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
+                    <div>
+                        <p class="eyebrow">{{ __('customer.confirm_title') }}</p>
+                        <h2 id="confirm-title" class="mt-0.5 font-display text-xl font-semibold text-ink">{{ __('customer.cart') }}</h2>
+                    </div>
+                    <button type="button" class="btn-icon shrink-0" data-sheet-close aria-label="{{ __('customer.close') }}"><x-ui.icon name="x" class="size-4" /></button>
+                </div>
+                <div id="confirm-body" class="px-5 py-4"></div>
+                <div class="sticky bottom-0 border-t border-line bg-paper px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+                    <div class="flex items-center justify-between gap-3">
+                        <div>
+                            <p class="text-[10px] font-bold uppercase tracking-[.16em] text-muted">{{ __('customer.total') }}</p>
+                            <p class="font-display text-2xl font-semibold text-forest" data-confirm-total-footer>₺0,00</p>
+                        </div>
+                        <button type="button" class="btn-primary flex-1 sm:flex-none" data-confirm-order>
+                            <x-ui.icon name="send" class="size-4" />
+                            {{ __('customer.send_order') }}
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        {{-- No-JS / crawler fallback: also keeps product data readable for assistive tech. --}}
+        <noscript>
+            <div class="mx-auto max-w-6xl px-4 pb-16 sm:px-6">
+                <h2 class="font-display text-2xl font-semibold text-ink">{{ __('customer.menu') }}</h2>
+                @foreach ($categories as $category)
+                    <section class="mt-6">
+                        <h3 class="text-lg font-bold text-ink">{{ $category->name }}</h3>
+                        <div class="mt-2 space-y-3">
+                            @foreach ($category->products as $product)
+                                @php $productPrice = \App\Services\Money::toCents($product->priceFor($branch)); @endphp
+                                <article class="rounded-2xl border border-line bg-paper p-4">
+                                    <p class="font-semibold text-ink">{{ $product->name }} — {{ \App\Services\Money::format($productPrice) }}</p>
+                                    @if ($product->description)
+                                        <p class="mt-1 text-sm text-muted">{{ $product->description }}</p>
+                                    @endif
+                                    @if ($product->optionGroups->isNotEmpty())
+                                        <p class="mt-2 text-sm font-bold text-forest">{{ __('customer.customize') }}</p>
+                                        <ul class="mt-1 space-y-0.5 text-xs text-muted">
+                                            @foreach ($product->optionGroups as $group)
+                                                @foreach ($group->options as $option)
+                                                    <li>{{ $group->name }} · {{ $option->name }} {{ '+'. \App\Services\Money::format(\App\Services\Money::toCents($option->price_delta)) }}</li>
+                                                @endforeach
+                                            @endforeach
+                                        </ul>
+                                    @endif
+                                </article>
+                            @endforeach
+                        </div>
+                    </section>
+                @endforeach
+            </div>
+        </noscript>
+
+        <script type="application/json" id="menu-data">{!! json_encode($menuData, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) !!}</script>
     </div>
-</x-layouts.app>
+</x-layouts.customer>

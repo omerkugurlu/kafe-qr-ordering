@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class Cafe extends Model
 {
@@ -30,6 +32,17 @@ class Cafe extends Model
         'loyalty_enabled',
         'points_per_100',
         'brand_name',
+        'logo_path',
+        'cover_path',
+        'description',
+        'phone',
+        'address',
+        'instagram',
+    ];
+
+    protected $appends = [
+        'logo_url',
+        'cover_url',
     ];
 
     protected function casts(): array
@@ -68,5 +81,36 @@ class Cafe extends Model
     public function loyaltyAccounts(): HasMany
     {
         return $this->hasMany(LoyaltyAccount::class);
+    }
+
+    public function coupons(): HasMany
+    {
+        return $this->hasMany(Coupon::class);
+    }
+
+    public function announcements(): HasMany
+    {
+        return $this->hasMany(Announcement::class);
+    }
+
+    public function getLogoUrlAttribute(): ?string
+    {
+        return $this->publicAssetUrl($this->logo_path);
+    }
+
+    public function getCoverUrlAttribute(): ?string
+    {
+        return $this->publicAssetUrl($this->cover_path);
+    }
+
+    private function publicAssetUrl(?string $path): ?string
+    {
+        if ($path === null || $path === '') {
+            return null;
+        }
+
+        return Str::startsWith($path, ['http://', 'https://'])
+            ? $path
+            : Storage::disk('public')->url($path);
     }
 }

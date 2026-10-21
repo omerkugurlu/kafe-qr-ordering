@@ -54,15 +54,33 @@ class TableSession extends Model
         return $this->hasMany(Payment::class);
     }
 
+    public function serviceRequests(): HasMany
+    {
+        return $this->hasMany(ServiceRequest::class);
+    }
+
     public function dueAmountCents(): int
     {
-        $ordersTotalCents = self::moneyToCents((string) $this->orders()
-            ->whereIn('status', [Order::STATUS_ACCEPTED, Order::STATUS_SERVED, Order::STATUS_PAID])
+        return max(0, $this->ordersTotalCents() - $this->paidTotalCents());
+    }
+
+    public function ordersTotalCents(): int
+    {
+        return self::moneyToCents((string) $this->orders()
+            ->whereNotIn('status', [Order::STATUS_CANCELLED])
             ->sum('total'));
+    }
 
-        $paidTotalCents = self::moneyToCents((string) $this->payments()->whereNull('voided_at')->sum('amount'));
+    public function paidTotalCents(): int
+    {
+        return self::moneyToCents((string) $this->payments()->whereNull('voided_at')->sum('amount'));
+    }
 
-        return max(0, $ordersTotalCents - $paidTotalCents);
+    public function activeOrdersCount(): int
+    {
+        return $this->orders()
+            ->whereIn('status', [Order::STATUS_PENDING, Order::STATUS_ACCEPTED, Order::STATUS_READY])
+            ->count();
     }
 
     public function dueAmount(): string

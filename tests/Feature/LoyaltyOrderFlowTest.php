@@ -52,10 +52,10 @@ class LoyaltyOrderFlowTest extends TestCase
         $session = $order->tableSession;
         $this->actingAs($waiter)->post(route('staff.sessions.payments.store', $session->id), [
             'method' => Payment::METHOD_CARD, 'amount' => '220.00',
-        ])->assertRedirect(route('staff.sessions.show', $session->id));
-        Livewire::actingAs($waiter)->test(OrderBoard::class, ['branchId' => $branch->id])->call('serve', $order->id)->assertHasNoErrors();
+        ])->assertRedirect(route('staff.branch', $branch->id));
 
         $this->assertDatabaseHas('orders', ['id' => $order->id, 'status' => Order::STATUS_PAID]);
+        $this->assertNotNull($order->fresh()->served_at);
         $this->assertDatabaseHas('loyalty_accounts', ['user_id' => $customer->id, 'points' => 2, 'completed_order_count' => 1]);
         $this->assertDatabaseHas('loyalty_transactions', ['order_id' => $order->id, 'type' => 'earned', 'points_delta' => 2]);
     }

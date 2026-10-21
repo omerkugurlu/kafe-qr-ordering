@@ -34,11 +34,12 @@ class RegisteredCustomerController extends Controller
             'password' => ['required', 'string', 'min:12', 'confirmed', 'max:255'],
         ]);
 
-        $user = $cafe->users()->create([
+        $user = User::query()->create([
             'name' => $validated['name'],
             'email' => Str::lower($validated['email']),
             'password' => $validated['password'],
             'role' => User::ROLE_CUSTOMER,
+            'cafe_id' => null,
             'is_active' => true,
         ]);
         event(new Registered($user));

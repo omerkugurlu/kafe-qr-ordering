@@ -16,7 +16,7 @@ class LoyaltyService
     /** @return Collection<int, LoyaltyCampaign> */
     public function availableCampaigns(Cafe $cafe, User $customer): Collection
     {
-        if (! $cafe->loyalty_enabled || $customer->cafe_id !== $cafe->id) {
+        if (! $cafe->loyalty_enabled || $customer->role !== User::ROLE_CUSTOMER || ! $customer->is_active) {
             return collect();
         }
 
@@ -43,7 +43,7 @@ class LoyaltyService
 
     public function redeem(Cafe $cafe, User $customer, LoyaltyCampaign $campaign, Order $order, int $subtotalCents, ?int $actorId): int
     {
-        abort_unless($cafe->loyalty_enabled && $campaign->cafe_id === $cafe->id && $customer->cafe_id === $cafe->id, 404);
+        abort_unless($cafe->loyalty_enabled && $campaign->cafe_id === $cafe->id && $customer->role === User::ROLE_CUSTOMER && $customer->is_active, 404);
         $lockedCustomer = User::query()->whereKey($customer->id)->lockForUpdate()->firstOrFail();
         $account = LoyaltyAccount::query()->firstOrCreate(
             ['cafe_id' => $cafe->id, 'user_id' => $lockedCustomer->id],
@@ -149,7 +149,7 @@ class LoyaltyService
     public function earnForPaidOrder(Order $order): void
     {
         $cafe = Cafe::query()->find($order->cafe_id);
-        $customer = User::query()->whereKey($order->customer_id)->where('cafe_id', $order->cafe_id)->first();
+        $customer = User::query()->whereKey($order->customer_id)->first();
 
         if ($cafe === null || ! $cafe->loyalty_enabled || $customer === null || $customer->role !== User::ROLE_CUSTOMER) {
             return;

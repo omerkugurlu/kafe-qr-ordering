@@ -26,5 +26,9 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('qr-menu', fn (Request $request) => Limit::perMinute(90)->by($request->ip()));
         RateLimiter::for('qr-order', fn (Request $request) => Limit::perMinute(8)->by($request->route('token').'|'.$request->ip()));
         RateLimiter::for('admin-write', fn (Request $request) => Limit::perMinute(20)->by((string) $request->user()?->getAuthIdentifier()));
+        RateLimiter::for('customer-poll', fn (Request $request) => Limit::perMinute(120)->by((string) $request->route('token').'|'.$request->ip()));
+        RateLimiter::for('staff-poll', fn (Request $request) => Limit::perMinute(240)->by((string) $request->user()?->getAuthIdentifier()));
+        RateLimiter::for('service-request', fn (Request $request) => Limit::perMinute(3)->by((string) $request->route('token').'|'.$request->ip()));
+        RateLimiter::for('coupon-check', fn (Request $request) => Limit::perMinute(20)->by((string) $request->route('token').'|'.$request->ip()));
     }
 }

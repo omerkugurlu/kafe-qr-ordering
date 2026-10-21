@@ -98,6 +98,67 @@ class ProductOptionSelectionService
         return $resolved;
     }
 
+    /**
+     * Validate one order line and return its price delta plus immutable snapshots.
+     *
+     * @param  array<int, int|string>  $optionIds
+     * @return array{price_delta_cents: int, snapshots: array<int, array<string, mixed>>}
+     */
+    public function resolveLine(MenuProduct $product, array $optionIds): array
+    {
+        $requestedIds = collect($optionIds)
+            ->filter(fn ($id): bool => is_numeric($id) && (int) $id > 0)
+            ->map(fn ($id): int => (int) $id)
+            ->unique()
+            ->values();
+
+        $groups = MenuOptionGroup::query()
+            ->where('menu_product_id', $product->id)
+            ->where('is_active', true)
+            ->with(['options' => fn ($query) => $query->where('is_available', true)->orderBy('sort_order')])
+            ->orderBy('sort_order')
+            ->lockForUpdate()
+            ->get();
+
+        $allowedOptionIds = $groups->flatMap(fn (MenuOptionGroup $group) => $group->options->modelKeys())->all();
+
+        if ($requestedIds->diff($allowedOptionIds)->isNotEmpty()) {
+            $this->invalid('Seçilen seçeneklerden biri artık kullanılamıyor. Menüyü yenileyip tekrar deneyin.');
+        }
+
+        $selected = $groups
+            ->flatMap(fn (MenuOptionGroup $group) => $group->options)
+            ->whereIn('id', $requestedIds)
+            ->keyBy('id');
+
+        $deltaCents = 0;
+        $snapshots = [];
+
+        foreach ($groups as $group) {
+            $picked = $selected->filter(fn (MenuOption $option): bool => (int) $option->menu_option_group_id === (int) $group->id);
+            $maxSelections = $group->selection_mode === 'single'
+                ? 1
+                : ($group->max_selections ?? $group->options->count());
+
+            if ($picked->count() < $group->min_selections || $picked->count() > $maxSelections) {
+                $this->invalid("{$group->name}: seçilen seçenek sayısını kontrol edin.");
+            }
+
+            foreach ($picked as $option) {
+                $priceDeltaCents = self::moneyToCents($option->price_delta);
+                $deltaCents += $priceDeltaCents;
+                $snapshots[] = [
+                    'menu_option_id' => $option->id,
+                    'group_name_snapshot' => $group->name,
+                    'name_snapshot' => $option->name,
+                    'price_delta' => self::centsToMoney($priceDeltaCents),
+                ];
+            }
+        }
+
+        return ['price_delta_cents' => $deltaCents, 'snapshots' => $snapshots];
+    }
+
     /** @return array<int, int> */
     private function normalizeSelection(mixed $selection, MenuOptionGroup $group): array
     {

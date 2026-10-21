@@ -7,6 +7,7 @@ use App\Models\ActivityLog;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\TableSession;
+use App\Models\User;
 use App\Services\OrderSettlementService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -29,8 +30,10 @@ class PaymentController extends Controller
         Gate::authorize('view', $session->branch);
         $amountCents = self::moneyToCents((string) $validated['amount']);
 
-        DB::transaction(function () use ($session, $request, $validated, $amountCents, $settlement): void {
-            $locked = TableSession::query()->whereKey($session->id)->lockForUpdate()->firstOrFail();
+        $closed = false;
+
+        DB::transaction(function () use ($session, $request, $validated, $amountCents, $settlement, &$closed): void {
+            $locked = TableSession::query()->with('branch')->whereKey($session->id)->lockForUpdate()->firstOrFail();
             abort_unless($locked->status === TableSession::STATUS_OPEN, 409);
             $dueCents = $locked->dueAmountCents();
 
@@ -40,7 +43,7 @@ class PaymentController extends Controller
 
             $orderItemId = $validated['order_item_id'] ?? null;
             if ($orderItemId !== null) {
-                $item = $locked->orders()->whereIn('status', [Order::STATUS_ACCEPTED, Order::STATUS_SERVED])
+                $item = $locked->orders()->whereIn('status', [Order::STATUS_ACCEPTED, Order::STATUS_READY, Order::STATUS_SERVED])
                     ->whereHas('items', fn ($query) => $query->whereKey($orderItemId))
                     ->with(['items' => fn ($query) => $query->whereKey($orderItemId)])
                     ->firstOrFail()->items->first();
@@ -61,7 +64,28 @@ class PaymentController extends Controller
                 'recorded_at' => now(),
             ]);
 
-            $settlement->settleServedOrders($locked);
+            $settled = $settlement->settleServedOrders($locked);
+
+            if ($settled) {
+                $locked->forceFill([
+                    'status' => TableSession::STATUS_CLOSED,
+                    'closed_by' => $request->user()->id,
+                    'closed_at' => now(),
+                    'closing_note' => 'Tam ödeme ile otomatik kapatıldı.',
+                ])->save();
+                $closed = true;
+
+                ActivityLog::query()->create([
+                    'cafe_id' => $locked->branch->cafe_id,
+                    'branch_id' => $locked->branch_id,
+                    'user_id' => $request->user()->id,
+                    'action' => 'table_session.closed',
+                    'subject_type' => TableSession::class,
+                    'subject_id' => $locked->id,
+                    'metadata' => ['note' => 'Tam ödeme ile otomatik kapatıldı.', 'payment_id' => $payment->id],
+                    'ip_address' => $request->ip(),
+                ]);
+            }
 
             ActivityLog::query()->create([
                 'cafe_id' => $locked->branch->cafe_id,
@@ -75,7 +99,20 @@ class PaymentController extends Controller
             ]);
         });
 
+        if ($closed) {
+            return $this->redirectAfterClosure($request, $session)->with('status', 'Ödeme kaydedildi ve adisyon kapatıldı.');
+        }
+
         return redirect()->route('staff.sessions.show', $sessionId)->with('status', 'Ödeme kaydedildi. Kart ödemesi fiziksel POS üzerinden alınmış olmalıdır.');
+    }
+
+    private function redirectAfterClosure(Request $request, TableSession $session): RedirectResponse
+    {
+        if ($request->user()?->hasRole(User::ROLE_CAFE_OWNER, User::ROLE_CAFE_MANAGER)) {
+            return redirect()->route('manage.orders.index', ['sube' => $session->branch_id]);
+        }
+
+        return redirect()->route('staff.branch', $session->branch_id);
     }
 
     public function void(Request $request, int $sessionId, int $paymentId): RedirectResponse

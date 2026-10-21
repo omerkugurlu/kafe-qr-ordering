@@ -56,7 +56,7 @@ class QrOrderingFlowTest extends TestCase
         [, , $table, $token, $product] = $this->createCafeTableAndProduct('Hesap isteyen kafe', Cafe::POLICY_REQUIRED);
 
         $this->post(route('customer.orders.store', $token), ['items' => [$product->id => 1]])
-            ->assertRedirect(route('customer.register', $token));
+            ->assertRedirect(route('customer.login', $token));
 
         $this->post(route('customer.register.store', $token), [
             'name' => 'Deniz Kaya',
@@ -66,7 +66,7 @@ class QrOrderingFlowTest extends TestCase
         ])->assertRedirect(route('customer.menu', $token));
 
         $customer = User::query()->where('email', 'deniz@example.test')->firstOrFail();
-        $this->assertSame($table->branch->cafe_id, $customer->cafe_id);
+        $this->assertNull($customer->cafe_id);
         $this->assertSame(User::ROLE_CUSTOMER, $customer->role);
         $this->assertAuthenticatedAs($customer);
     }

@@ -188,6 +188,11 @@ class BranchController extends Controller
             ->with(['products' => fn ($query) => $query->orderBy('sort_order')->with($productRelations)])
             ->orderBy('sort_order')->orderBy('name')->get();
 
+        /** @var array<int, int> $productIdMap */
+        $productIdMap = [];
+        /** @var array<int, array<int, int>> $pendingSuggestions */
+        $pendingSuggestions = [];
+
         foreach ($categories as $category) {
             $categoryCopy = MenuCategory::query()->create([
                 'cafe_id' => $target->cafe_id,
@@ -204,10 +209,18 @@ class BranchController extends Controller
                     'branch_id' => $target->id,
                     'name' => $product->name,
                     'description' => $product->description,
+                    'image_path' => $product->image_path,
                     'price' => $product->priceFor($pricingBranch),
+                    'prep_minutes' => $product->prep_minutes,
                     'is_available' => $product->isAvailableAt($pricingBranch),
+                    'is_featured' => $product->is_featured,
                     'sort_order' => $product->sort_order,
                 ]);
+
+                $productIdMap[$product->id] = $productCopy->id;
+                $pendingSuggestions[$productCopy->id] = collect($product->suggestions ?? [])
+                    ->map(fn ($id): int => (int) $id)
+                    ->all();
 
                 if (method_exists($product, 'optionGroups') && method_exists($productCopy, 'optionGroups')) {
                     foreach ($product->optionGroups as $group) {
@@ -228,6 +241,17 @@ class BranchController extends Controller
                     }
                 }
             }
+        }
+
+        foreach ($pendingSuggestions as $copyId => $sourceIds) {
+            $mapped = collect($sourceIds)
+                ->map(fn (int $id): ?int => $productIdMap[$id] ?? null)
+                ->filter(fn (?int $id): bool => $id !== null)
+                ->values()
+                ->all();
+
+            $copy = MenuProduct::query()->find($copyId);
+            $copy?->forceFill(['suggestions' => $mapped])->save();
         }
     }
 }

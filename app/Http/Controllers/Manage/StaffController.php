@@ -22,7 +22,7 @@ class StaffController extends Controller
         return view('manage.staff', [
             'cafe' => $cafe,
             'branches' => $cafe->branches()->where('is_active', true)->orderBy('name')->get(),
-            'staff' => $cafe->users()->whereIn('role', [User::ROLE_CAFE_MANAGER, User::ROLE_WAITER])->with('branches')->orderBy('name')->get(),
+            'staff' => $cafe->users()->whereIn('role', [User::ROLE_CAFE_MANAGER, User::ROLE_WAITER, User::ROLE_KITCHEN])->with('branches')->orderBy('name')->get(),
         ]);
     }
 
@@ -34,12 +34,12 @@ class StaffController extends Controller
             'name' => ['required', 'string', 'max:120'],
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
             'password' => ['required', 'string', 'min:12', 'max:255'],
-            'role' => ['required', Rule::in([User::ROLE_CAFE_MANAGER, User::ROLE_WAITER])],
+            'role' => ['required', Rule::in([User::ROLE_CAFE_MANAGER, User::ROLE_WAITER, User::ROLE_KITCHEN])],
             'branch_ids' => ['nullable', 'array'],
             'branch_ids.*' => ['integer', Rule::exists('branches', 'id')->where('cafe_id', $cafe->id)],
         ]);
-        if ($validated['role'] === User::ROLE_WAITER && empty($validated['branch_ids'])) {
-            return back()->withErrors(['branch_ids' => 'Garsona en az bir şube atayın.'])->withInput();
+        if (in_array($validated['role'], [User::ROLE_WAITER, User::ROLE_KITCHEN], true) && empty($validated['branch_ids'])) {
+            return back()->withErrors(['branch_ids' => 'Garson veya mutfak kullanıcısına en az bir şube atayın.'])->withInput();
         }
 
         $user = DB::transaction(function () use ($cafe, $validated, $request): User {
@@ -69,15 +69,15 @@ class StaffController extends Controller
 
     public function update(Request $request, User $user): RedirectResponse
     {
-        abort_unless($user->cafe_id === $request->user()->cafe_id && in_array($user->role, [User::ROLE_CAFE_MANAGER, User::ROLE_WAITER], true), 404);
+        abort_unless($user->cafe_id === $request->user()->cafe_id && in_array($user->role, [User::ROLE_CAFE_MANAGER, User::ROLE_WAITER, User::ROLE_KITCHEN], true), 404);
         $cafe = $request->user()->cafe;
         $validated = $request->validate([
             'is_active' => ['required', 'boolean'],
             'branch_ids' => ['nullable', 'array'],
             'branch_ids.*' => ['integer', Rule::exists('branches', 'id')->where('cafe_id', $cafe->id)],
         ]);
-        if ($user->role === User::ROLE_WAITER && $request->boolean('is_active') && empty($validated['branch_ids'])) {
-            return back()->withErrors(['branch_ids' => 'Etkin garsona en az bir şube atayın.']);
+        if (in_array($user->role, [User::ROLE_WAITER, User::ROLE_KITCHEN], true) && $request->boolean('is_active') && empty($validated['branch_ids'])) {
+            return back()->withErrors(['branch_ids' => 'Etkin garson veya mutfak kullanıcısına en az bir şube atayın.']);
         }
 
         DB::transaction(function () use ($user, $validated, $request): void {
