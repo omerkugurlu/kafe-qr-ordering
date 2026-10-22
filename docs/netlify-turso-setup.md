@@ -1,6 +1,6 @@
 # Netlify + Turso yerel ve canlı ortam
 
-Bu uygulama React/Vite arayüzü, Netlify Functions API'si ve libSQL/Turso veritabanı kullanır. Laravel sürümü `C:\Users\user\Desktop\qr menü` klasöründe ayrı yedek olarak durur; bu yeni uygulama eski MySQL verisini kendiliğinden içe aktarmaz.
+Bu uygulama React/Vite arayüzü, Netlify Functions API'si ve Turso Cloud kullanır. Yerel geliştirme `@libsql/client` ile SQLite dosyasında çalışır; canlı ortamda mevcut libSQL transaction arayüzünü koruyan Turso'nun resmi `@tursodatabase/serverless` uyumluluk katmanı kullanılır. Laravel sürümü `C:\Users\user\Desktop\qr menü` klasöründe ayrı yedek olarak durur; bu yeni uygulama eski MySQL verisini kendiliğinden içe aktarmaz.
 
 ## Yerelde çalıştırma
 
@@ -12,7 +12,7 @@ Bu uygulama React/Vite arayüzü, Netlify Functions API'si ve libSQL/Turso verit
 
 ## Turso veritabanını hazırlama
 
-Turso hesabında yeni bir veritabanı oluşturup uygulamanın kullanacağı URL ile veritabanı auth token'ını alın. `TURSO_DATABASE_URL` ve `TURSO_AUTH_TOKEN` değerlerini Netlify'ın ortam değişkenlerine ekleyin. Uygulama ilk API çağrısında tabloları hazırlar. Turso'nun kendi JavaScript istemci ve kimlik bilgisi akışı [Turso SDK dokümanında](https://docs.turso.tech/sdk) açıklanıyor.
+Turso hesabında yeni bir veritabanı oluşturup uygulamanın kullanacağı URL ile veritabanı auth token'ını alın. `TURSO_DATABASE_URL` ve `TURSO_AUTH_TOKEN` değerlerini Netlify'ın ortam değişkenlerine ekleyin. Uygulama ilk API çağrısında tabloları hazırlar. Canlı fonksiyonlar Turso'nun sunucusuz sürücüsünü, yerel geliştirme ise yerel SQLite sürücüsünü kullanır. Turso'nun [sunucusuz JavaScript sürücüsü](https://github.com/tursodatabase/turso/tree/main/serverless/javascript) uzak veritabanı erişimi içindir.
 
 İlk canlı açılıştan önce boş/test veritabanında şema ve temel akışları doğrulayın. İlk süper admini Turso'ya bağlanan güvenli yerel terminalden `npm run create:admin` komutuyla oluşturun; bu komut parola değerini ekrana yazdırmaz ve veritabanında yalnızca bir platform admini olmasına izin verir. Veritabanı auth token'ını sonrasında yalnızca gereken kapsamda tutun ve gizli olarak yönetin.
 

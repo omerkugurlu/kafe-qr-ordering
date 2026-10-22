@@ -19,6 +19,8 @@
 /.local-media
 /database/turso/local.db
 /.local-e2e.db
+/playwright-report
+/test-results
 /public/build
 /public/fonts-manifest.dev.json
 /public/hot
