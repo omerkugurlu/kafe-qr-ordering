@@ -18,11 +18,15 @@ Turso hesabında yeni bir veritabanı oluşturup uygulamanın kullanacağı URL 
 
 Eski Laravel MySQL verisi henüz Turso'ya taşınmıyor. Kafeler, kullanıcılar, menüler, siparişler ve masalar yeni uygulamada görünmez; canlı geçişten önce ayrı ve kontrollü bir aktarım/temiz başlangıç kararı gerekir. Eski sistemi yedek olarak saklayın.
 
-## Netlify'a bağlama
+## Yayındaki Netlify sitesi
 
-Netlify'da GitHub'daki public `kafe-qr-ordering` deposunu yeni bir siteye bağlayın. Depodaki `netlify.toml` build komutunu `npm run build`, yayın klasörünü `dist`, Functions klasörünü `netlify/functions` olarak tanımlar; `.nvmrc` Node 24'ü seçer. Netlify bu yapılandırmayı deploy sırasında uygular. [Netlify build ayarları](https://docs.netlify.com/build/configure-builds/overview/) ve [Node sürümü seçimi](https://docs.netlify.com/build/configure-builds/manage-dependencies/) dokümanları.
+İlk üretim sitesi `https://skykite-masa-siparis.netlify.app` adresinde yayında. Netlify site kimliği `ee6105f5-2081-422d-91b0-2d02116c4ffd`; production Functions API Turso'ya bağlanıyor. İlk süper yönetici hesabı oluşturuldu. Yeni veritabanı boş olduğundan henüz kafe, şube veya masa kaydı yok.
 
-Netlify Project configuration içindeki environment variables bölümünde şu değerleri tanımlayın ve yeni deploy başlatın. Değişkenlerin Functions çalışma zamanı kapsamına erişmesi gerekir; hesapta kapsam seçimi varsa `Functions` kapsamını açın. `TURSO_AUTH_TOKEN` ve QR anahtarını site koduna, `VITE_` değişkenlerine veya Git'e eklemeyin.
+İlk dağıtım Netlify CLI ile elle yapıldı. Netlify projesi GitHub deposuna henüz bağlanmadığı için `main` dalına yapılan push'lar otomatik dağıtım başlatmaz. Sürekli dağıtım istenirse Netlify Project configuration içinden GitHub deposu `omerkugurlu/kafe-qr-ordering` ve `main` dalı bağlanmalıdır. O zamana kadar dağıtımı proje kökünde `npx netlify-cli deploy --build --prod --site ee6105f5-2081-422d-91b0-2d02116c4ffd` komutuyla yapın.
+
+Depodaki `netlify.toml` build komutunu `npm run build`, yayın klasörünü `dist`, Functions klasörünü `netlify/functions` olarak tanımlar; `.nvmrc` Node 24'ü seçer. Netlify bu yapılandırmayı deploy sırasında uygular. [Netlify build ayarları](https://docs.netlify.com/build/configure-builds/overview/) ve [Node sürümü seçimi](https://docs.netlify.com/build/configure-builds/manage-dependencies/) dokümanları.
+
+Canlı sitenin Netlify ortam değişkenleri production için tanımlanmıştır. Bir anahtarı yenilerseniz Netlify Project configuration içindeki environment variables bölümünden güncelleyin ve yeni deploy başlatın. Değişkenlerin Functions çalışma zamanı kapsamına erişmesi gerekir; hesapta kapsam seçimi varsa `Functions` kapsamını açın. `TURSO_AUTH_TOKEN` ve QR anahtarını site koduna, `VITE_` değişkenlerine veya Git'e eklemeyin.
 
 | Değişken | Değer |
 | --- | --- |
@@ -31,7 +35,7 @@ Netlify Project configuration içindeki environment variables bölümünde şu d
 | `TURSO_AUTH_TOKEN` | Turso auth token |
 | `QR_TOKEN_ENCRYPTION_KEY` | QR masa belirteçlerini şifrelemek için en az 32 rastgele baytlık sabit anahtar |
 
-Gizli değerleri `netlify.toml`, Git, `VITE_` değişkenleri veya ekran görüntülerine koymayın. Ortam değişkenleri `netlify.toml` içinden Functions çalışma zamanına aktarılmaz; Netlify paneli/CLI/API üzerinden ayarlayın ve değer değişince yeniden deploy edin. [Functions environment variables](https://docs.netlify.com/build/functions/environment-variables/).
+Gizli değerleri `netlify.toml`, Git, `VITE_` değişkenleri veya ekran görüntülerine koymayın. Ortam değişkenleri `netlify.toml` içinden Functions çalışma zamanına aktarılmaz; Netlify paneli/CLI/API üzerinden ayarlayın ve değer değişince yeniden deploy edin. Ücretsiz hesapta Function kapsamı seçimi desteklenmiyorsa değişkenler genel site değişkeni olarak kalır; bunları hiçbir zaman `VITE_` adıyla tanımlamayın ve Netlify ekip erişimini sınırlayın. [Functions environment variables](https://docs.netlify.com/build/functions/environment-variables/).
 
 Netlify Functions varsayılan olarak Ohio'da çalışır. Turso veritabanını Avrupa'da konumlandırırsanız ve Netlify hesabınız planı destekliyorsa Functions region ayarını Frankfurt (`fra`) yapıp yeniden deploy edin. Netlify bu bölge seçimini Pro ve Enterprise planlarda sunuyor; [Functions region dokümanını](https://docs.netlify.com/build/functions/configuration/#region) hesaptaki planla birlikte kontrol edin. Ürün fotoğrafları Netlify Blobs'ta Frankfurt bölgesine yazılır; [Blobs bölgeleri ve tutarlılık](https://docs.netlify.com/build/data-and-storage/netlify-blobs/).
 
@@ -39,11 +43,11 @@ Netlify Functions varsayılan olarak Ohio'da çalışır. Turso veritabanını A
 
 Yerel geliştirmede doğrulanmış JPG, PNG ve WebP görselleri `.local-media` altında tutulur. Netlify üzerinde görseller `skykite-menu-media` Blobs deposuna yazılır; deploy'lar arasında kalıcıdır. Yükleme 4 MB ile sınırlıdır.
 
-Siteyi deploy edip `https://<netlify-site>.netlify.app` üzerinde giriş, menü, QR sipariş, çalışan paneli ve ödeme kaydı akışını kontrol ettikten sonra ayrı domain bağlayın. Domain Keyubu'da kalabilir; Netlify'ın verdiği DNS kayıtlarını domain DNS panelinde tanımlarsınız. Keyubu cPanel'deki PHP hosting bu Netlify Functions/Turso API'sini çalıştırmaz.
+Şu an production adresi `https://skykite-masa-siparis.netlify.app`; özel domain ve DNS henüz ayarlanmamıştır. Akışlar kafe verisiyle kabul testinden geçirildikten sonra ayrı domaini Netlify'a bağlayın. Domain Keyubu'da kalabilir; Netlify'ın verdiği DNS kayıtlarını domain DNS panelinde tanımlarsınız. Keyubu cPanel'deki PHP hosting bu Netlify Functions/Turso API'sini çalıştırmaz.
 
-## Yayına çıkmadan önce açık işler
+## Canlıya geçişte kalan işler
 
-- Eski MySQL verisi için aktarım veya kafeleri temiz başlangıçla yeniden oluşturma kararı ve gerekiyorsa migration script'i.
-- Gerçek Turso veritabanı/token ve Netlify site ortamı verilmediği için canlı bağlantı ve deploy doğrulaması bu ortamda henüz yapılmadı.
-- Netlify'da test deploy, domain/DNS, canlı SMTP ayarları ve yedek/geri yükleme denemesi.
-- Üretimde çalıştırmadan önce hesap, masa QR, müşteri siparişi, personel durumu ve kısmi ödeme akışlarının gerçek Turso üzerinde kabul testi.
+- Eski Laravel/MySQL verisi Turso'ya aktarılmadı. Eski kafeleri taşımak veya yeni sistemde temiz başlangıç yapmak için ayrıca karar ve gerekiyorsa kontrollü aktarım gerekir.
+- Özel domain ve DNS henüz Netlify'a bağlanmadı; şu an `.netlify.app` adresi kullanılıyor.
+- Yerel otomatik testler ve mobil QR-sipariş/personel E2E akışı geçti. Üretimde giriş ve boş süper admin paneli doğrulandı; gerçek kafe, masa ve sipariş verisi olmadığı için üretimde sipariş/ödeme akışı henüz çalıştırılmadı.
+- Canlı e-posta sağlayıcısı, yedekleme ve geri yükleme denemesi ayrıca yapılandırılmalı.
