@@ -107,12 +107,12 @@ class CustomerExperienceTest extends TestCase
             ->assertSee('minlength="8"', false)
             ->assertSee('En az 8 karakter');
 
-        $this->post(route('customer.register.store', $token), [
+        $this->followingRedirects()->post(route('customer.register.store', $token), [
             'name' => 'Kısa Şifre',
             'email' => 'kisa@example.com',
             'password' => 'abc1234',
             'password_confirmation' => 'abc1234',
-        ])->assertSessionHasErrors('password');
+        ])->assertSee('Şifre en az 8 karakter olmalıdır.');
 
         $this->post(route('customer.register.store', $token), [
             'name' => 'Sekiz Karakter',

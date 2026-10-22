@@ -116,6 +116,7 @@ class AdminCafeProvisioningTest extends TestCase
         User::factory()->create(['cafe_id' => $activeCafe->id, 'role' => User::ROLE_CUSTOMER, 'is_active' => true]);
         User::factory()->create(['cafe_id' => $activeCafe->id, 'role' => User::ROLE_CUSTOMER, 'is_active' => false]);
         User::factory()->create(['cafe_id' => $suspendedCafe->id, 'role' => User::ROLE_CUSTOMER, 'is_active' => true]);
+        User::factory()->create(['cafe_id' => null, 'role' => User::ROLE_CUSTOMER, 'is_active' => true]);
 
         $this->actingAs($admin)
             ->get(route('platform.dashboard'))
@@ -123,7 +124,7 @@ class AdminCafeProvisioningTest extends TestCase
             ->assertViewHas('totalCafes', 2)
             ->assertViewHas('activeCafes', 1)
             ->assertViewHas('activeTables', 1)
-            ->assertViewHas('activeCustomers', 1);
+            ->assertViewHas('activeCustomers', 3);
     }
 
     public function test_platform_admin_can_edit_cafe_details_and_owner_credentials(): void

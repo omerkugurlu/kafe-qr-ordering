@@ -30,7 +30,6 @@ class CafeController extends Controller
         $activeCustomers = User::query()
             ->where('role', User::ROLE_CUSTOMER)
             ->where('is_active', true)
-            ->whereHas('cafe', fn ($query) => $query->where('status', Cafe::STATUS_ACTIVE))
             ->count();
 
         return view('platform.dashboard', [

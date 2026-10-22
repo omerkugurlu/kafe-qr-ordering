@@ -65,7 +65,7 @@
     </div>
 
     <div class="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,.6fr)]">
-        <section class="card p-5">
+        <section class="card min-w-0 p-5">
             <div class="flex items-center justify-between gap-2">
                 <div>
                     <h2 class="font-display text-xl font-semibold text-ink">Günlük tahsilat</h2>
@@ -87,7 +87,7 @@
             </div>
         </section>
 
-        <section class="card p-5">
+        <section class="card min-w-0 p-5">
             <h2 class="font-display text-xl font-semibold text-ink">Ödeme dağılımı</h2>
             <p class="text-[11px] font-semibold uppercase tracking-[.14em] text-muted">Tahsilat yöntemi</p>
 
