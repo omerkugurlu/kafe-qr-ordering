@@ -1,9 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
-import {
-    createClient as createLocalClient,
-    type Client,
-} from "@libsql/client";
+import { createClient as createLocalClient, type Client } from "@libsql/client";
 import { createClient as createTursoClient } from "@tursodatabase/serverless/compat";
 import { schemaStatements } from "./schema.js";
 

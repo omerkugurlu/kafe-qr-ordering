@@ -1,8 +1,10 @@
-import "dotenv/config";
+import dotenv from "dotenv";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import { viteApiPlugin } from "./src/server/viteApiPlugin.js";
+
+dotenv.config({ path: ".env.local" });
 
 export default defineConfig({
     plugins: [react(), tailwindcss(), viteApiPlugin()],

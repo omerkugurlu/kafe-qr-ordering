@@ -1,10 +1,12 @@
-import "dotenv/config";
+import dotenv from "dotenv";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { hash } from "bcryptjs";
 import { z } from "zod";
 import { getDatabase, initializeDatabase } from "../src/server/db/client.js";
 import { nowIso } from "../src/server/http.js";
+
+dotenv.config({ path: ".env.local" });
 
 async function promptHidden(label: string): Promise<string> {
     if (!stdin.isTTY || typeof stdin.setRawMode !== "function") {

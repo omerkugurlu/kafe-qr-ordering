@@ -5,7 +5,7 @@ Bu uygulama React/Vite arayüzü, Netlify Functions API'si ve Turso Cloud kullan
 ## Yerelde çalıştırma
 
 1. Node.js 24 ve npm kurulu olsun. Proje klasöründe `npm ci` çalıştırın.
-2. `.env.example` dosyasını `.env` olarak kopyalayın. Varsayılan `file:` adresi, projede `database/turso/local.db` SQLite dosyasını kullanır.
+2. `.env.example` dosyasını `.env.local` adıyla kopyalayın. Projede `.env` Laravel'in eski yerel ayarlarını barındırabilir; ona dokunmayın. Varsayılan `file:` adresi `database/turso/local.db` SQLite dosyasını kullanır.
 3. `npm run create:admin` komutunu etkileşimli terminalde çalıştırıp ilk süper admini oluşturun. Şifre terminalde gizli girilir. Zaten bir süper admin varsa komut ikinci bir hesap açmaz.
 4. `npm run dev` ile `http://127.0.0.1:5173` adresinde uygulamayı açın. Vite geliştirme sunucusu, aynı API kodunu yerelden çalıştırır.
 5. Değişiklik kontrolü için `npm run typecheck`, `npm test` ve `npm run build` komutlarını kullanın.
@@ -20,9 +20,9 @@ Eski Laravel MySQL verisi henüz Turso'ya taşınmıyor. Kafeler, kullanıcılar
 
 ## Netlify'a bağlama
 
-Netlify'da GitHub'daki özel `kafe-qr-ordering` deposunu yeni bir siteye bağlayın. Depodaki `netlify.toml` build komutunu `npm run build`, yayın klasörünü `dist`, Functions klasörünü `netlify/functions` olarak tanımlar; `.nvmrc` Node 24'ü seçer. Netlify bu yapılandırmayı deploy sırasında uygular. [Netlify build ayarları](https://docs.netlify.com/build/configure-builds/overview/) ve [Node sürümü seçimi](https://docs.netlify.com/build/configure-builds/manage-dependencies/) dokümanları.
+Netlify'da GitHub'daki public `kafe-qr-ordering` deposunu yeni bir siteye bağlayın. Depodaki `netlify.toml` build komutunu `npm run build`, yayın klasörünü `dist`, Functions klasörünü `netlify/functions` olarak tanımlar; `.nvmrc` Node 24'ü seçer. Netlify bu yapılandırmayı deploy sırasında uygular. [Netlify build ayarları](https://docs.netlify.com/build/configure-builds/overview/) ve [Node sürümü seçimi](https://docs.netlify.com/build/configure-builds/manage-dependencies/) dokümanları.
 
-Netlify Project configuration içindeki environment variables bölümünde şu gizli değerleri tanımlayın ve yeni deploy başlatın:
+Netlify Project configuration içindeki environment variables bölümünde şu değerleri tanımlayın ve yeni deploy başlatın. Değişkenlerin Functions çalışma zamanı kapsamına erişmesi gerekir; hesapta kapsam seçimi varsa `Functions` kapsamını açın. `TURSO_AUTH_TOKEN` ve QR anahtarını site koduna, `VITE_` değişkenlerine veya Git'e eklemeyin.
 
 | Değişken | Değer |
 | --- | --- |
