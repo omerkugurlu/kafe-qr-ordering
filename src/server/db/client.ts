@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
-import { createClient as createLocalClient, type Client } from "@libsql/client";
+import type { Client } from "@libsql/client";
 import { createClient as createTursoClient } from "@tursodatabase/serverless/compat";
 import { schemaStatements } from "./schema.js";
 
@@ -8,6 +8,11 @@ export interface DatabaseConfig {
     nodeEnv?: string;
     url?: string;
     authToken?: string;
+}
+
+async function createLocalDatabase(url: string): Promise<Client> {
+    const { createClient } = await import("@libsql/client");
+    return createClient({ url });
 }
 
 let clientPromise: Promise<Client> | undefined;
@@ -31,13 +36,13 @@ export async function createDatabaseClient(
         }
 
         const path = url.slice("file:".length);
-        if (path === ":memory:") return createLocalClient({ url });
+        if (path === ":memory:") return createLocalDatabase(url);
 
         const localFile = isAbsolute(path)
             ? path
             : resolve(process.cwd(), path);
         await mkdir(dirname(localFile), { recursive: true });
-        return createLocalClient({ url: `file:${localFile}` });
+        return createLocalDatabase(`file:${localFile}`);
     }
 
     if (url) {
@@ -74,7 +79,7 @@ export async function createDatabaseClient(
 
     const localFile = resolve(process.cwd(), "database", "turso", "local.db");
     await mkdir(dirname(localFile), { recursive: true });
-    return createLocalClient({ url: `file:${localFile}` });
+    return createLocalDatabase(`file:${localFile}`);
 }
 
 export async function getDatabase(): Promise<Client> {

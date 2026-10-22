@@ -1,5 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { createDatabaseClient } from "./client.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const openClients: Array<{ close: () => void; closed: boolean }> = [];
 
@@ -7,10 +6,17 @@ afterEach(() => {
     for (const client of openClients.splice(0)) {
         if (!client.closed) client.close();
     }
+    vi.doUnmock("@libsql/client");
+    vi.resetModules();
 });
+
+async function loadCreateDatabaseClient() {
+    return (await import("./client.js")).createDatabaseClient;
+}
 
 describe("database driver selection", () => {
     it("uses the local SQLite driver for file URLs", async () => {
+        const createDatabaseClient = await loadCreateDatabaseClient();
         const database = await createDatabaseClient({
             nodeEnv: "development",
             url: "file::memory:",
@@ -22,6 +28,23 @@ describe("database driver selection", () => {
     });
 
     it("creates the Turso serverless client for remote URLs", async () => {
+        const createDatabaseClient = await loadCreateDatabaseClient();
+        const database = await createDatabaseClient({
+            nodeEnv: "production",
+            url: "libsql://example.turso.io",
+            authToken: "test-token-not-used-for-network-access",
+        });
+        openClients.push(database);
+
+        expect(database.closed).toBe(false);
+    });
+
+    it("does not load the native local driver for remote Turso connections", async () => {
+        vi.doMock("@libsql/client", () => {
+            throw new Error("The native local SQLite driver was loaded.");
+        });
+
+        const createDatabaseClient = await loadCreateDatabaseClient();
         const database = await createDatabaseClient({
             nodeEnv: "production",
             url: "libsql://example.turso.io",
@@ -33,6 +56,7 @@ describe("database driver selection", () => {
     });
 
     it("requires remote Turso credentials in production", async () => {
+        const createDatabaseClient = await loadCreateDatabaseClient();
         await expect(
             createDatabaseClient({ nodeEnv: "production" }),
         ).rejects.toThrow("TURSO_DATABASE_URL is required");
@@ -53,6 +77,7 @@ describe("database driver selection", () => {
     });
 
     it("rejects non-Turso remote database schemes", async () => {
+        const createDatabaseClient = await loadCreateDatabaseClient();
         await expect(
             createDatabaseClient({
                 nodeEnv: "development",
