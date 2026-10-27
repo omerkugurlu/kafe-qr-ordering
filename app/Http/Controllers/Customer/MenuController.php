@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Customer;
 
 use App\Http\Controllers\Controller;
+use App\Models\ActivityLog;
 use App\Models\Cafe;
 use App\Models\DiningTable;
 use App\Models\LoyaltyAccount;
@@ -16,6 +17,7 @@ use App\Services\OrderPresenter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 
 class MenuController extends Controller
 {
@@ -129,11 +131,7 @@ class MenuController extends Controller
             'product_ids' => $category->products->pluck('id')->values()->all(),
         ])->values();
 
-        $session = TableSession::query()
-            ->where('dining_table_id', $table->id)
-            ->where('status', TableSession::STATUS_OPEN)
-            ->latest('id')
-            ->first();
+        $session = $this->startOrFindQrSession($table, $request);
 
         $sessionPayload = $session !== null ? $presenter->session($session) : null;
 
@@ -249,5 +247,52 @@ class MenuController extends Controller
                 ? $session->orders()->whereNotIn('status', [Order::STATUS_CANCELLED])->count()
                 : 0,
         ])->header('Cache-Control', 'private, no-store, max-age=0, must-revalidate');
+    }
+
+    private function startOrFindQrSession(DiningTable $table, Request $request): TableSession
+    {
+        return DB::transaction(function () use ($table, $request): TableSession {
+            $lockedTable = DiningTable::query()->whereKey($table->id)->lockForUpdate()->firstOrFail();
+            $branch = $lockedTable->branch()->lockForUpdate()->firstOrFail();
+            $cafe = $branch->cafe()->lockForUpdate()->firstOrFail();
+
+            abort_unless(
+                $lockedTable->is_active && $branch->is_active && $cafe->status === Cafe::STATUS_ACTIVE,
+                404,
+            );
+
+            $session = TableSession::query()
+                ->where('dining_table_id', $lockedTable->id)
+                ->where('status', TableSession::STATUS_OPEN)
+                ->lockForUpdate()
+                ->latest('id')
+                ->first();
+
+            if ($session !== null) {
+                return $session;
+            }
+
+            $session = TableSession::query()->create([
+                'branch_id' => $branch->id,
+                'dining_table_id' => $lockedTable->id,
+                'status' => TableSession::STATUS_OPEN,
+                'qr_ordering_enabled' => true,
+                'opened_by' => null,
+                'opened_at' => now(),
+            ]);
+
+            ActivityLog::query()->create([
+                'cafe_id' => $cafe->id,
+                'branch_id' => $branch->id,
+                'user_id' => null,
+                'action' => 'table_session.opened_from_qr',
+                'subject_type' => TableSession::class,
+                'subject_id' => $session->id,
+                'metadata' => ['table_id' => $lockedTable->id],
+                'ip_address' => $request->ip(),
+            ]);
+
+            return $session;
+        });
     }
 }

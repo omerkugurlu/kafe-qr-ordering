@@ -35,6 +35,7 @@ class OrderController extends Controller
         ProductOptionSelectionService $optionSelection,
     ): RedirectResponse|JsonResponse {
         $validated = $request->validate([
+            'session_id' => ['required', 'integer', 'min:1'],
             'lines' => ['nullable', 'array', 'min:1', 'max:50'],
             'lines.*.product_id' => ['required_with:lines', 'integer', 'min:1'],
             'lines.*.quantity' => ['required_with:lines', 'integer', 'min:1', 'max:20'],
@@ -144,7 +145,13 @@ class OrderController extends Controller
                 ->latest('id')
                 ->first();
 
-            if ($session === null || ! $session->qr_ordering_enabled) {
+            if ($session === null || (int) $session->id !== (int) $validated['session_id']) {
+                throw ValidationException::withMessages([
+                    'session_id' => 'Bu QR oturumu sona erdi. Sipariş vermek için masadaki QR kodu yeniden okutun.',
+                ]);
+            }
+
+            if (! $session->qr_ordering_enabled) {
                 throw ValidationException::withMessages(['items' => 'Bu masa şu anda QR siparişine açık değil. Garsondan masayı açmasını isteyin.']);
             }
 
@@ -383,6 +390,9 @@ class OrderController extends Controller
 
     public function status(Request $request, string $token, OrderPresenter $presenter): JsonResponse
     {
+        $validated = $request->validate([
+            'session_id' => ['nullable', 'integer', 'min:1'],
+        ]);
         $table = $this->tableForToken($token);
 
         if ($this->needsCustomerAccount($request, $table)) {
@@ -405,6 +415,12 @@ class OrderController extends Controller
             if ($order !== null) {
                 $session = $order->tableSession;
             }
+        }
+
+        $expectedSessionId = $validated['session_id'] ?? null;
+
+        if ($order === null && $expectedSessionId !== null && (int) ($session?->id ?? 0) !== (int) $expectedSessionId) {
+            $session = null;
         }
 
         return response()->json([

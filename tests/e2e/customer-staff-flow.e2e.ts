@@ -5,6 +5,7 @@ import { createClient } from "@libsql/client";
 import { hashSync } from "bcryptjs";
 import { expect, test } from "@playwright/test";
 import { initializeDatabase } from "../../src/server/db/client.js";
+import { encryptQrToken } from "../../src/server/qrTokens.js";
 
 const databasePath = resolve(process.cwd(), ".local-e2e.db");
 const databaseUrl = `file:${databasePath.replaceAll("\\", "/")}`;
@@ -19,6 +20,18 @@ test.beforeAll(async () => {
         sql: `INSERT INTO cafes (name,slug,status,registration_policy,loyalty_enabled,points_per_100,created_at,updated_at)
               VALUES ('Kıyı Kahve','kiyi-kahve','active','optional',1,1,?,?)`,
         args: [now, now],
+    });
+    await database.execute({
+        sql: `INSERT INTO cafe_subscriptions (cafe_id,subscription_plan_id,plan_name_snapshot,status,starts_at,ends_at,
+                annual_price_snapshot_cents,max_tables_snapshot,max_branches_snapshot,features_snapshot_json,created_at,updated_at)
+              SELECT 1,id,name,'active',?, ?,annual_price_cents,max_tables,max_branches,features_json,?,?
+              FROM subscription_plans WHERE code='orta'`,
+        args: [
+            new Date(Date.now() - 86_400_000).toISOString(),
+            new Date(Date.now() + 365 * 86_400_000).toISOString(),
+            now,
+            now,
+        ],
     });
     await database.execute({
         sql: `INSERT INTO branches (cafe_id,name,slug,uses_shared_menu,is_active,created_at,updated_at)
@@ -64,8 +77,8 @@ test.beforeAll(async () => {
     const tokenHash = createHash("sha256").update(tableToken).digest("hex");
     await database.execute({
         sql: `INSERT INTO dining_tables (branch_id,name,public_token_hash,public_token_encrypted,is_active,created_at,updated_at)
-              VALUES (1,'Masa 1',?,'test-token',1,?,?)`,
-        args: [tokenHash, now, now],
+              VALUES (1,'Masa 1',?,?,1,?,?)`,
+        args: [tokenHash, encryptQrToken(tableToken), now, now],
     });
     await database.execute({
         sql: `INSERT INTO table_sessions (branch_id,dining_table_id,status,qr_ordering_enabled,opened_by,opened_at,created_at,updated_at)
@@ -182,4 +195,40 @@ test("mobile QR order moves through waiter service and payment", async ({
 
     await staffContext.close();
     await customerContext.close();
+});
+
+test("cafe owner can open the subscription and included feature panels", async ({
+    page,
+}) => {
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+    page.on("response", (response) => {
+        if (response.status() >= 400)
+            pageErrors.push(`${response.status()} ${response.url()}`);
+    });
+
+    await page.goto("/giris");
+    await page.getByLabel("E-posta").fill("owner@example.test");
+    await page.getByLabel("Şifre").fill("OwnerPass123");
+    await page.getByRole("button", { name: /Panele giriş yap/ }).click();
+    await expect(page).toHaveURL(/\/yonetim/);
+
+    await page.getByRole("button", { name: "Paket ve abonelik" }).click();
+    await expect(
+        page.getByRole("heading", { name: "İşletmene uygun planı seç" }),
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Raporlar" }).click();
+    await expect(
+        page.getByRole("heading", { name: "Raporlar ve dışa aktarma" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Duyurular" }).click();
+    await expect(
+        page.getByRole("heading", { name: "Şube duyuruları" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Kuponlar" }).click();
+    await expect(
+        page.getByRole("heading", { name: "Kupon sistemi" }),
+    ).toBeVisible();
+    expect(pageErrors).toEqual([]);
 });

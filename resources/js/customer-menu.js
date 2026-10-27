@@ -83,7 +83,8 @@ function initMenu(root, data) {
     const storedCart = loadCart();
     let cart = storedCart;
     let orderNote = localStorage.getItem(noteKey) ?? '';
-    let orderingAvailable = data.ordering_available === true;
+    const qrSessionId = Number(data.session?.id) || null;
+    let orderingAvailable = data.ordering_available === true && qrSessionId !== null;
     let orderWaitingForWaiter = false;
     let coupon = null;
     let loyaltyCampaignId = null;
@@ -1089,6 +1090,7 @@ function initMenu(root, data) {
             const response = await apiFetch(data.urls.order, {
                 method: 'POST',
                 body: {
+                    session_id: qrSessionId,
                     lines: cart.map((line) => ({
                         product_id: line.productId,
                         quantity: line.quantity,
@@ -1136,6 +1138,10 @@ function initMenu(root, data) {
     }
 
     function renderSession(session) {
+        if (Number(session?.id) !== qrSessionId) {
+            session = null;
+        }
+
         updateOrderingAvailability(session);
         updateBillRequestAvailability(session);
 
@@ -1181,8 +1187,10 @@ function initMenu(root, data) {
     }
 
     function updateOrderingAvailability(session) {
-        orderWaitingForWaiter = session?.qr_order_pending === true;
-        orderingAvailable = session?.is_open === true
+        const matchesQrSession = qrSessionId !== null && Number(session?.id) === qrSessionId;
+        orderWaitingForWaiter = matchesQrSession && session?.qr_order_pending === true;
+        orderingAvailable = matchesQrSession
+            && session?.is_open === true
             && session?.qr_ordering_enabled === true
             && !orderWaitingForWaiter;
 
@@ -1539,7 +1547,13 @@ function initMenu(root, data) {
     }
 
     startPolling(async () => {
-        const response = await apiFetch(data.urls.status);
+        const statusUrl = new URL(data.urls.status, window.location.href);
+
+        if (qrSessionId !== null) {
+            statusUrl.searchParams.set('session_id', String(qrSessionId));
+        }
+
+        const response = await apiFetch(statusUrl.toString());
         renderSession(response.session);
     }, 15000, { immediate: false });
 }

@@ -17,8 +17,15 @@ import {
     type ApiEnvironment,
     withTransaction,
 } from "./http.js";
+import {
+    cafeFeatureEnabled,
+    cafeServiceAccessEnabled,
+    requireCafeFeature,
+    requireCafeServiceAccess,
+} from "./subscriptions.js";
 
 const orderSchema = z.object({
+    tableSessionId: z.number().int().positive(),
     lines: z
         .array(
             z.object({
@@ -206,7 +213,24 @@ async function menuResponse(
         customer?.role === "customer" &&
         customer.cafeId === Number(table.cafe_id) &&
         customer;
-    if (String(table.registration_policy) === "required" && !isCustomer) {
+    const cafeId = Number(table.cafe_id);
+    const now = nowIso(environment);
+    const [
+        serviceAccess,
+        customerAccountsAvailable,
+        loyaltyAvailable,
+        announcementsAvailable,
+    ] = await Promise.all([
+        cafeServiceAccessEnabled(database, cafeId, now),
+        cafeFeatureEnabled(database, cafeId, "customer_accounts", now),
+        cafeFeatureEnabled(database, cafeId, "loyalty", now),
+        cafeFeatureEnabled(database, cafeId, "announcements", now),
+    ]);
+    if (
+        customerAccountsAvailable &&
+        String(table.registration_policy) === "required" &&
+        !isCustomer
+    ) {
         return new Response(
             JSON.stringify({
                 error: "Bu kafede sipariş vermek için müşteri hesabınızla giriş yapın.",
@@ -321,20 +345,17 @@ async function menuResponse(
     const snapshot = session
         ? await sessionSnapshot(database, session as Record<string, unknown>)
         : null;
-    const announcements = await database.execute({
-        sql: `SELECT id, type, title, body FROM announcements WHERE cafe_id = ? AND is_active = 1
-              AND (branch_id IS NULL OR branch_id = ?) AND (starts_at IS NULL OR starts_at <= ?)
-              AND (ends_at IS NULL OR ends_at >= ?) ORDER BY created_at DESC LIMIT 6`,
-        args: [
-            Number(table.cafe_id),
-            Number(table.branch_id),
-            nowIso(environment),
-            nowIso(environment),
-        ],
-    });
+    const announcements = announcementsAvailable
+        ? await database.execute({
+              sql: `SELECT id, type, title, body FROM announcements WHERE cafe_id = ? AND is_active = 1
+                    AND (branch_id IS NULL OR branch_id = ?) AND (starts_at IS NULL OR starts_at <= ?)
+                    AND (ends_at IS NULL OR ends_at >= ?) ORDER BY created_at DESC LIMIT 6`,
+              args: [cafeId, Number(table.branch_id), now, now],
+          })
+        : { rows: [] };
 
     let loyalty = null;
-    if (isCustomer && bool(table.loyalty_enabled)) {
+    if (isCustomer && bool(table.loyalty_enabled) && loyaltyAvailable) {
         const accountResult = await database.execute({
             sql: "SELECT points, completed_order_count FROM loyalty_accounts WHERE cafe_id = ? AND user_id = ?",
             args: [Number(table.cafe_id), isCustomer.id],
@@ -412,6 +433,7 @@ async function menuResponse(
             featuredIds: selectedFeatured.map((product) => product.id),
             session: snapshot,
             orderingAvailable: Boolean(
+                serviceAccess &&
                 snapshot?.isOpen &&
                 snapshot.qrOrderingEnabled &&
                 !snapshot.qrOrderPending,
@@ -540,7 +562,17 @@ async function createOrder(
         const current = currentTable.rows[0];
         if (!current)
             throw new ApiError(404, "Masa kullanılamıyor.", "table_not_found");
-        if (String(current.registration_policy) === "required" && !customer)
+        const customerAccountsAvailable = await cafeFeatureEnabled(
+            transaction,
+            Number(current.cafe_id),
+            "customer_accounts",
+            nowIso(environment),
+        );
+        if (
+            customerAccountsAvailable &&
+            String(current.registration_policy) === "required" &&
+            !customer
+        )
             throw new ApiError(
                 401,
                 "Sipariş vermek için müşteri hesabınızla giriş yapın.",
@@ -552,6 +584,11 @@ async function createOrder(
                 "Müşteri hesabıyla giriş yapın.",
                 "customer_role_required",
             );
+        await requireCafeServiceAccess(
+            transaction,
+            Number(current.cafe_id),
+            nowIso(environment),
+        );
 
         const sessionResult = await transaction.execute({
             sql: `SELECT id, branch_id, status, qr_ordering_enabled FROM table_sessions
@@ -559,7 +596,14 @@ async function createOrder(
             args: [Number(current.id)],
         });
         const session = sessionResult.rows[0];
-        if (!session || !bool(session.qr_ordering_enabled)) {
+        if (!session || Number(session.id) !== input.tableSessionId) {
+            throw new ApiError(
+                409,
+                "Bu masa oturumu sona erdi. Yeni oturuma katılmak için QR kodunu yeniden okutun.",
+                "table_session_changed",
+            );
+        }
+        if (!bool(session.qr_ordering_enabled)) {
             throw new ApiError(
                 409,
                 "Bu masa şu anda QR siparişine açık değil. Garsondan masayı açmasını isteyin.",
@@ -658,6 +702,12 @@ async function createOrder(
         const now = nowIso(environment);
 
         if (input.couponCode.trim()) {
+            await requireCafeFeature(
+                transaction,
+                Number(current.cafe_id),
+                "coupons",
+                now,
+            );
             const normalized = input.couponCode.trim().toUpperCase();
             const couponResult = await transaction.execute({
                 sql: `SELECT id, code, type, value_cents, value_basis_points, min_subtotal_cents,
@@ -708,6 +758,12 @@ async function createOrder(
         }
 
         if (input.loyaltyCampaignId) {
+            await requireCafeFeature(
+                transaction,
+                Number(current.cafe_id),
+                "loyalty",
+                now,
+            );
             if (!customer || !bool(current.loyalty_enabled))
                 throw new ApiError(
                     422,
@@ -923,6 +979,12 @@ async function validateCoupon(
     const input = parseInput(schema, await readJson(request));
     const database = await getDatabase(environment);
     const table = await getTableByToken(database, token);
+    await requireCafeFeature(
+        database,
+        Number(table.cafe_id),
+        "coupons",
+        nowIso(environment),
+    );
     const result = await database.execute({
         sql: `SELECT type, value_cents, value_basis_points, min_subtotal_cents, starts_at, ends_at, usage_limit, used_count
               FROM coupons WHERE cafe_id = ? AND code = ? COLLATE NOCASE AND is_active = 1`,
@@ -1028,6 +1090,18 @@ async function customerAccount(
 ): Promise<Response> {
     const database = await getDatabase(environment);
     const table = await getTableByToken(database, token);
+    await requireCafeFeature(
+        database,
+        Number(table.cafe_id),
+        "customer_accounts",
+        nowIso(environment),
+    );
+    const loyaltyAvailable = await cafeFeatureEnabled(
+        database,
+        Number(table.cafe_id),
+        "loyalty",
+        nowIso(environment),
+    );
     const customer = await currentUser(request, environment);
     if (
         !customer ||
@@ -1072,18 +1146,22 @@ async function customerAccount(
                 email: customer.email,
             },
             loyalty: {
-                points: Number(account?.points ?? 0),
-                completedOrders: Number(account?.completed_order_count ?? 0),
-                savedCents,
+                points: loyaltyAvailable ? Number(account?.points ?? 0) : 0,
+                completedOrders: loyaltyAvailable
+                    ? Number(account?.completed_order_count ?? 0)
+                    : 0,
+                savedCents: loyaltyAvailable ? savedCents : 0,
             },
             orders,
-            rewards: transactionResult.rows.map((transaction) => ({
-                type: String(transaction.type),
-                pointsDelta: Number(transaction.points_delta),
-                discountCents: Number(transaction.discount_amount_cents),
-                description: String(transaction.description),
-                createdAt: String(transaction.created_at),
-            })),
+            rewards: loyaltyAvailable
+                ? transactionResult.rows.map((transaction) => ({
+                      type: String(transaction.type),
+                      pointsDelta: Number(transaction.points_delta),
+                      discountCents: Number(transaction.discount_amount_cents),
+                      description: String(transaction.description),
+                      createdAt: String(transaction.created_at),
+                  }))
+                : [],
         }),
         {
             headers: {

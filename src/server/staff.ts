@@ -19,6 +19,7 @@ import {
     type AuthenticatedUser,
     withTransaction,
 } from "./http.js";
+import { cafeFeatureEnabled } from "./subscriptions.js";
 
 const idSchema = z.coerce.number().int().positive();
 
@@ -440,6 +441,15 @@ async function payLoyaltyForOrder(
     });
     const cafe = cafeResult.rows[0];
     if (!cafe || Number(cafe.loyalty_enabled) !== 1) return;
+    if (
+        !(await cafeFeatureEnabled(
+            transaction,
+            Number(order.cafe_id),
+            "loyalty",
+            now,
+        ))
+    )
+        return;
     const points =
         Math.floor(Number(order.total_cents) / 10_000) *
         Number(cafe.points_per_100);

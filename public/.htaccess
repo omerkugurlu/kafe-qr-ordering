@@ -4,6 +4,11 @@
     </IfModule>
 
     RewriteEngine On
+    RewriteBase /kafe-qr-ordering/
+
+    <IfModule mod_authz_core.c>
+        Require all granted
+    </IfModule>
 
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
@@ -21,5 +26,5 @@
     # Send Requests To Front Controller...
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteRule ^ index.php [L]
+    RewriteRule ^(.*)$ index.php/$1 [END]
 </IfModule>

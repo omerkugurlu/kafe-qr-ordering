@@ -28,6 +28,11 @@ import {
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider.js";
 import { formatCurrency, toCents, toDecimal } from "../domain/money.js";
+import { CafeSubscriptionPanel } from "./CafeSubscriptionPanel.js";
+import { CafeAnnouncementsPanel } from "./CafeAnnouncementsPanel.js";
+import { CafeCouponsPanel } from "./CafeCouponsPanel.js";
+import { CafeReportsPanel } from "./CafeReportsPanel.js";
+import { PlatformSubscriptionsPanel } from "./PlatformSubscriptionsPanel.js";
 import {
     ApiClientError,
     apiPatch,
@@ -192,12 +197,23 @@ function messageOf(error: unknown) {
 export function ManagePage() {
     const { user, csrfToken, loading, logout } = useAuth();
     const [overview, setOverview] = useState<Overview | null>(null);
+    const [featureAccess, setFeatureAccess] = useState<Record<
+        "reports" | "announcements" | "coupons",
+        boolean
+    > | null>(null);
     const [branchId, setBranchId] = useState<number | null>(null);
     const [menu, setMenu] = useState<MenuData | null>(null);
     const [tables, setTables] = useState<DiningTable[]>([]);
-    const [tab, setTab] = useState<"menu" | "tables" | "branches" | "settings">(
-        "menu",
-    );
+    const [tab, setTab] = useState<
+        | "menu"
+        | "tables"
+        | "branches"
+        | "settings"
+        | "subscription"
+        | "reports"
+        | "announcements"
+        | "coupons"
+    >("menu");
     const [error, setError] = useState("");
     const [notice, setNotice] = useState("");
     const [busy, setBusy] = useState(false);
@@ -283,6 +299,36 @@ export function ManagePage() {
             void refreshOverview();
     }, [refreshOverview, user]);
     useEffect(() => {
+        if (user?.role !== "cafe_owner") {
+            setFeatureAccess(null);
+            return;
+        }
+        let active = true;
+        void apiRequest<{
+            subscription: { features: Record<string, boolean> } | null;
+        }>("/api/manage/subscription")
+            .then((data) => {
+                if (!active) return;
+                setFeatureAccess({
+                    reports: data.subscription?.features.reports ?? false,
+                    announcements:
+                        data.subscription?.features.announcements ?? false,
+                    coupons: data.subscription?.features.coupons ?? false,
+                });
+            })
+            .catch(() => {
+                if (active)
+                    setFeatureAccess({
+                        reports: false,
+                        announcements: false,
+                        coupons: false,
+                    });
+            });
+        return () => {
+            active = false;
+        };
+    }, [user?.id, user?.role]);
+    useEffect(() => {
         void refreshBranch();
     }, [refreshBranch]);
     useEffect(() => {
@@ -291,6 +337,11 @@ export function ManagePage() {
             void refreshCampaigns();
         }
     }, [refreshCampaigns, refreshStaff, tab]);
+
+    const featureTab =
+        tab === "reports" || tab === "announcements" || tab === "coupons"
+            ? tab
+            : null;
 
     const productsByCategory = useMemo(
         () =>
@@ -785,18 +836,77 @@ export function ManagePage() {
                             ["tables", "Masalar ve QR"],
                             ["branches", "Şubeler"],
                             ["settings", "Kafe ayarları"],
+                            ["subscription", "Paket ve abonelik"],
+                            ["reports", "Raporlar"],
+                            ["announcements", "Duyurular"],
+                            ["coupons", "Kuponlar"],
                         ] as const
-                    ).map(([id, label]) => (
-                        <button
-                            className={tab === id ? "chip-active" : "chip"}
-                            key={id}
-                            onClick={() => setTab(id)}
-                            type="button"
-                        >
-                            {label}
-                        </button>
-                    ))}
+                    )
+                        .filter(([id]) => {
+                            if (id === "subscription")
+                                return user?.role === "cafe_owner";
+                            if (
+                                id === "reports" ||
+                                id === "announcements" ||
+                                id === "coupons"
+                            )
+                                return (
+                                    user?.role === "cafe_owner" &&
+                                    featureAccess?.[id] === true
+                                );
+                            return true;
+                        })
+                        .map(([id, label]) => (
+                            <button
+                                className={tab === id ? "chip-active" : "chip"}
+                                key={id}
+                                onClick={() => setTab(id)}
+                                type="button"
+                            >
+                                {label}
+                            </button>
+                        ))}
                 </nav>
+
+                {tab === "subscription" && user?.role === "cafe_owner" && (
+                    <CafeSubscriptionPanel csrfToken={csrfToken} />
+                )}
+                {featureTab && user?.role === "cafe_owner" &&
+                    (featureAccess === null ? (
+                        <div className="card mt-5 p-5 text-sm text-muted">
+                            Paket özellikleri kontrol ediliyor…
+                        </div>
+                    ) : featureAccess[featureTab] ? (
+                        featureTab === "reports" ? (
+                            <CafeReportsPanel />
+                        ) : featureTab === "announcements" ? (
+                            <CafeAnnouncementsPanel
+                                branches={overview?.branches ?? []}
+                                csrfToken={csrfToken}
+                            />
+                        ) : (
+                            <CafeCouponsPanel csrfToken={csrfToken} />
+                        )
+                    ) : (
+                        <section className="card mt-5 p-5 sm:p-6">
+                            <p className="eyebrow">Paket özelliği</p>
+                            <h1 className="mt-1 font-display text-2xl font-semibold">
+                                Bu özellik mevcut paketinde yok
+                            </h1>
+                            <p className="mt-2 text-sm text-muted">
+                                Özelliği kullanmak için kafe paketini
+                                yükseltebilir veya süper yöneticiden paket
+                                seçeneklerini kontrol etmesini isteyebilirsin.
+                            </p>
+                            <button
+                                className="btn-primary mt-4"
+                                onClick={() => setTab("subscription")}
+                                type="button"
+                            >
+                                Paket bilgilerini görüntüle
+                            </button>
+                        </section>
+                    ))}
 
                 {tab === "menu" && (
                     <section className="mt-5">
@@ -2694,6 +2804,9 @@ function MenuModeDialog({
 
 export function PlatformPage() {
     const { user, csrfToken, loading, logout } = useAuth();
+    const [section, setSection] = useState<
+        "accounts" | "plans" | "requests" | "subscriptions"
+    >("accounts");
     const [data, setData] = useState<{
         cafes: DashboardTable[];
         metrics: {
@@ -2898,174 +3011,209 @@ export function PlatformPage() {
                         value={data?.metrics.activeCustomers ?? 0}
                     />
                 </section>
-                <div className="mt-7 grid gap-5 lg:grid-cols-[360px_1fr]">
-                    <section className="card h-fit p-4 sm:p-5">
-                        <p className="eyebrow">Yeni işletme</p>
-                        <h1 className="mt-1 font-display text-2xl font-semibold">
-                            Kafe oluştur
-                        </h1>
-                        <p className="mt-1 text-sm text-muted">
-                            İlk şube ve kafe sahibi hesabı birlikte açılır.
-                        </p>
-                        <form
-                            className="mt-4 space-y-3"
-                            onSubmit={(event) => void createCafe(event)}
+                <nav
+                    aria-label="Süper admin bölümleri"
+                    className="mt-5 flex flex-wrap gap-2"
+                >
+                    {(
+                        [
+                            ["accounts", "Kafeler"],
+                            ["plans", "Paket düzenle"],
+                            ["requests", "Paket talepleri"],
+                            ["subscriptions", "Kafe paketleri ve süreleri"],
+                        ] as const
+                    ).map(([id, label]) => (
+                        <button
+                            aria-current={section === id ? "page" : undefined}
+                            className={
+                                section === id ? "btn-primary" : "btn-secondary"
+                            }
+                            key={id}
+                            onClick={() => setSection(id)}
+                            type="button"
                         >
-                            <label className="block">
-                                <span className="label">Kafe adı</span>
-                                <input
-                                    className="input"
-                                    onChange={(event) =>
-                                        setForm({
-                                            ...form,
-                                            cafeName: event.target.value,
-                                        })
-                                    }
-                                    required
-                                    value={form.cafeName}
-                                />
-                            </label>
-                            <label className="block">
-                                <span className="label">İlk şube</span>
-                                <input
-                                    className="input"
-                                    onChange={(event) =>
-                                        setForm({
-                                            ...form,
-                                            branchName: event.target.value,
-                                        })
-                                    }
-                                    required
-                                    value={form.branchName}
-                                />
-                            </label>
-                            <label className="block">
-                                <span className="label">Sahip adı</span>
-                                <input
-                                    className="input"
-                                    onChange={(event) =>
-                                        setForm({
-                                            ...form,
-                                            ownerName: event.target.value,
-                                        })
-                                    }
-                                    required
-                                    value={form.ownerName}
-                                />
-                            </label>
-                            <label className="block">
-                                <span className="label">Sahip e-posta</span>
-                                <input
-                                    className="input"
-                                    onChange={(event) =>
-                                        setForm({
-                                            ...form,
-                                            ownerEmail: event.target.value,
-                                        })
-                                    }
-                                    required
-                                    type="email"
-                                    value={form.ownerEmail}
-                                />
-                            </label>
-                            <button
-                                className="btn-primary w-full"
-                                disabled={busy}
-                                type="submit"
+                            {label}
+                        </button>
+                    ))}
+                </nav>
+                {section === "accounts" && (
+                    <div className="mt-7 grid gap-5 lg:grid-cols-[360px_1fr]">
+                        <section className="card h-fit p-4 sm:p-5">
+                            <p className="eyebrow">Yeni işletme</p>
+                            <h1 className="mt-1 font-display text-2xl font-semibold">
+                                Kafe oluştur
+                            </h1>
+                            <p className="mt-1 text-sm text-muted">
+                                İlk şube ve kafe sahibi hesabı birlikte açılır.
+                            </p>
+                            <form
+                                className="mt-4 space-y-3"
+                                onSubmit={(event) => void createCafe(event)}
                             >
-                                <Plus className="size-4" /> Kafeyi oluştur
-                            </button>
-                        </form>
-                    </section>
-                    <section>
-                        <div className="mb-3 flex items-end justify-between">
-                            <div>
-                                <p className="eyebrow">İşletme hesapları</p>
-                                <h2 className="mt-1 font-display text-2xl font-semibold">
-                                    Kafeler
-                                </h2>
-                            </div>
-                            <span className="badge-neutral">
-                                {data?.cafes.length ?? 0} kayıt
-                            </span>
-                        </div>
-                        <div className="space-y-3">
-                            {data?.cafes.map((cafe) => (
-                                <article
-                                    className="card flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:p-5"
-                                    key={cafe.id}
+                                <label className="block">
+                                    <span className="label">Kafe adı</span>
+                                    <input
+                                        className="input"
+                                        onChange={(event) =>
+                                            setForm({
+                                                ...form,
+                                                cafeName: event.target.value,
+                                            })
+                                        }
+                                        required
+                                        value={form.cafeName}
+                                    />
+                                </label>
+                                <label className="block">
+                                    <span className="label">İlk şube</span>
+                                    <input
+                                        className="input"
+                                        onChange={(event) =>
+                                            setForm({
+                                                ...form,
+                                                branchName: event.target.value,
+                                            })
+                                        }
+                                        required
+                                        value={form.branchName}
+                                    />
+                                </label>
+                                <label className="block">
+                                    <span className="label">Sahip adı</span>
+                                    <input
+                                        className="input"
+                                        onChange={(event) =>
+                                            setForm({
+                                                ...form,
+                                                ownerName: event.target.value,
+                                            })
+                                        }
+                                        required
+                                        value={form.ownerName}
+                                    />
+                                </label>
+                                <label className="block">
+                                    <span className="label">Sahip e-posta</span>
+                                    <input
+                                        className="input"
+                                        onChange={(event) =>
+                                            setForm({
+                                                ...form,
+                                                ownerEmail: event.target.value,
+                                            })
+                                        }
+                                        required
+                                        type="email"
+                                        value={form.ownerEmail}
+                                    />
+                                </label>
+                                <button
+                                    className="btn-primary w-full"
+                                    disabled={busy}
+                                    type="submit"
                                 >
-                                    <div className="grid size-12 shrink-0 place-items-center rounded-2xl bg-sage text-forest">
-                                        <Store className="size-5" />
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <h3 className="font-display text-lg font-semibold">
-                                                {cafe.name}
-                                            </h3>
-                                            <span
+                                    <Plus className="size-4" /> Kafeyi oluştur
+                                </button>
+                            </form>
+                        </section>
+                        <section>
+                            <div className="mb-3 flex items-end justify-between">
+                                <div>
+                                    <p className="eyebrow">İşletme hesapları</p>
+                                    <h2 className="mt-1 font-display text-2xl font-semibold">
+                                        Kafeler
+                                    </h2>
+                                </div>
+                                <span className="badge-neutral">
+                                    {data?.cafes.length ?? 0} kayıt
+                                </span>
+                            </div>
+                            <div className="space-y-3">
+                                {data?.cafes.map((cafe) => (
+                                    <article
+                                        className="card flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:p-5"
+                                        key={cafe.id}
+                                    >
+                                        <div className="grid size-12 shrink-0 place-items-center rounded-2xl bg-sage text-forest">
+                                            <Store className="size-5" />
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <h3 className="font-display text-lg font-semibold">
+                                                    {cafe.name}
+                                                </h3>
+                                                <span
+                                                    className={
+                                                        cafe.status === "active"
+                                                            ? "badge-paid"
+                                                            : "badge-cancelled"
+                                                    }
+                                                >
+                                                    {cafe.status === "active"
+                                                        ? "Aktif"
+                                                        : "Askıda"}
+                                                </span>
+                                            </div>
+                                            <p className="mt-0.5 text-xs text-muted">
+                                                {cafe.owner?.name ??
+                                                    "Sahip atanmamış"}{" "}
+                                                · {cafe.owner?.email ?? "—"}
+                                            </p>
+                                            <p className="mt-1 text-xs text-muted">
+                                                {cafe.branches} şube ·{" "}
+                                                {cafe.activeTables} masa ·{" "}
+                                                {cafe.activeCustomers} müşteri
+                                            </p>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2">
+                                            <button
+                                                className="btn-secondary btn-sm"
+                                                onClick={() => setEditing(cafe)}
+                                                type="button"
+                                            >
+                                                Düzenle
+                                            </button>
+                                            <button
+                                                className="btn-secondary btn-sm"
+                                                disabled={busy || !cafe.owner}
+                                                onClick={() =>
+                                                    void resetOwner(cafe)
+                                                }
+                                                type="button"
+                                            >
+                                                Şifre sıfırla
+                                            </button>
+                                            <button
                                                 className={
                                                     cafe.status === "active"
-                                                        ? "badge-paid"
-                                                        : "badge-cancelled"
+                                                        ? "btn-danger btn-sm"
+                                                        : "btn-primary btn-sm"
                                                 }
+                                                disabled={busy}
+                                                onClick={() =>
+                                                    void changeStatus(cafe)
+                                                }
+                                                type="button"
                                             >
                                                 {cafe.status === "active"
-                                                    ? "Aktif"
-                                                    : "Askıda"}
-                                            </span>
+                                                    ? "Askıya al"
+                                                    : "Etkinleştir"}
+                                            </button>
                                         </div>
-                                        <p className="mt-0.5 text-xs text-muted">
-                                            {cafe.owner?.name ??
-                                                "Sahip atanmamış"}{" "}
-                                            · {cafe.owner?.email ?? "—"}
-                                        </p>
-                                        <p className="mt-1 text-xs text-muted">
-                                            {cafe.branches} şube ·{" "}
-                                            {cafe.activeTables} masa ·{" "}
-                                            {cafe.activeCustomers} müşteri
-                                        </p>
-                                    </div>
-                                    <div className="flex flex-wrap gap-2">
-                                        <button
-                                            className="btn-secondary btn-sm"
-                                            onClick={() => setEditing(cafe)}
-                                            type="button"
-                                        >
-                                            Düzenle
-                                        </button>
-                                        <button
-                                            className="btn-secondary btn-sm"
-                                            disabled={busy || !cafe.owner}
-                                            onClick={() =>
-                                                void resetOwner(cafe)
-                                            }
-                                            type="button"
-                                        >
-                                            Şifre sıfırla
-                                        </button>
-                                        <button
-                                            className={
-                                                cafe.status === "active"
-                                                    ? "btn-danger btn-sm"
-                                                    : "btn-primary btn-sm"
-                                            }
-                                            disabled={busy}
-                                            onClick={() =>
-                                                void changeStatus(cafe)
-                                            }
-                                            type="button"
-                                        >
-                                            {cafe.status === "active"
-                                                ? "Askıya al"
-                                                : "Etkinleştir"}
-                                        </button>
-                                    </div>
-                                </article>
-                            ))}
-                        </div>
-                    </section>
-                </div>
+                                    </article>
+                                ))}
+                            </div>
+                        </section>
+                    </div>
+                )}
+                {section !== "accounts" && (
+                    <PlatformSubscriptionsPanel
+                        csrfToken={csrfToken}
+                        section={
+                            section === "subscriptions" ? "cafes" : section
+                        }
+                    />
+                )}
             </div>
             {credential && (
                 <div className="fixed inset-0 z-50 grid place-items-center bg-ink/45 p-4">

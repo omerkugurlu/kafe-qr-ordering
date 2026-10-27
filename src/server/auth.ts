@@ -14,6 +14,7 @@ import {
     withTransaction,
 } from "./http.js";
 import { checkSameOrigin, jsonResponse, readJson } from "./http.js";
+import { cafeFeatureEnabled, requireCafeFeature } from "./subscriptions.js";
 import { z } from "zod";
 import { compare, hash as hashPassword } from "bcryptjs";
 
@@ -311,6 +312,12 @@ export async function handleAuthRequest(
             await readJson(request),
         );
         const cafe = await getCafeForTableToken(database, body.token);
+        await requireCafeFeature(
+            database,
+            cafe.id,
+            "customer_accounts",
+            nowIso(environment),
+        );
         if (cafe.registration_policy === "guest")
             throw new ApiError(
                 403,
@@ -324,6 +331,12 @@ export async function handleAuthRequest(
         checkSameOrigin(request);
         const input = parseInput(registerSchema, await readJson(request));
         const cafe = await getCafeForTableToken(database, input.token);
+        await requireCafeFeature(
+            database,
+            cafe.id,
+            "customer_accounts",
+            nowIso(environment),
+        );
         if (cafe.registration_policy === "guest")
             throw new ApiError(
                 403,
@@ -454,7 +467,16 @@ export async function getCustomerForToken(
         user.cafeId === Number(table.cafe_id)
     )
         return user;
-    if (table.registration_policy === "required") {
+    const database = await getDatabase(environment);
+    if (
+        table.registration_policy === "required" &&
+        (await cafeFeatureEnabled(
+            database,
+            Number(table.cafe_id),
+            "customer_accounts",
+            nowIso(environment),
+        ))
+    ) {
         throw new ApiError(
             401,
             "Sipariş vermek için müşteri hesabınızla giriş yapın.",

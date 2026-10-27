@@ -439,7 +439,7 @@ class CustomerExperienceTest extends TestCase
             'is_available' => true,
         ]);
 
-        TableSession::query()->create([
+        $session = TableSession::query()->create([
             'branch_id' => $branch->id,
             'dining_table_id' => $table->id,
             'status' => TableSession::STATUS_OPEN,
@@ -447,6 +447,7 @@ class CustomerExperienceTest extends TestCase
         ]);
 
         $this->post(route('customer.orders.store', $table->token()), [
+            'session_id' => $session->id,
             'lines' => [
                 ['product_id' => $product->id, 'quantity' => $quantity],
             ],

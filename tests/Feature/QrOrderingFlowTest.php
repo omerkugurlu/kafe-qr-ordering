@@ -20,13 +20,18 @@ class QrOrderingFlowTest extends TestCase
     public function test_customer_can_view_a_table_menu_and_submit_server_priced_order(): void
     {
         [$cafe, $branch, $table, $token, $product] = $this->createCafeTableAndProduct();
+        $this->assertSame(hash('sha256', $token), $table->public_token_hash);
+        $this->assertTrue($table->is_active && $branch->is_active && $cafe->status === Cafe::STATUS_ACTIVE);
 
-        $this->get(route('customer.menu', $token))
+        $menuResponse = $this->get(route('customer.menu', $token));
+        $menuResponse
             ->assertOk()
             ->assertSee('Kıyı Kahve')
             ->assertSee('Filtre kahve');
+        $session = TableSession::query()->where('dining_table_id', $table->id)->where('status', TableSession::STATUS_OPEN)->firstOrFail();
 
         $this->post(route('customer.orders.store', $token), [
+            'session_id' => $session->id,
             'items' => [$product->id => 2],
             'customer_note' => 'Yulaf sütü lütfen',
         ])->assertRedirect(route('customer.menu', $token));
@@ -41,19 +46,40 @@ class QrOrderingFlowTest extends TestCase
         $this->assertSame('Filtre kahve', $order->items->first()->name_snapshot);
     }
 
-    public function test_closed_static_qr_cannot_create_a_new_table_session_or_order(): void
+    public function test_fresh_qr_scan_opens_a_new_session_and_old_page_cannot_order(): void
     {
         [, , $table, $token, $product] = $this->createCafeTableAndProduct();
-        $session = TableSession::query()->where('dining_table_id', $table->id)->firstOrFail();
-        $session->forceFill(['status' => TableSession::STATUS_CLOSED, 'closed_at' => now()])->save();
+        $oldSession = TableSession::query()->where('dining_table_id', $table->id)->firstOrFail();
+        $oldSession->forceFill(['status' => TableSession::STATUS_CLOSED, 'closed_at' => now()])->save();
+
+        $menuResponse = $this->get(route('customer.menu', $token))->assertOk();
+        $newSession = TableSession::query()
+            ->where('dining_table_id', $table->id)
+            ->where('status', TableSession::STATUS_OPEN)
+            ->firstOrFail();
+
+        $this->assertNotSame($oldSession->id, $newSession->id);
+        $this->assertDatabaseCount('table_sessions', 2);
+        preg_match('~<script type="application/json" id="menu-data">(.*?)</script>~s', $menuResponse->getContent(), $matches);
+        $menuData = json_decode($matches[1] ?? '', true);
+        $this->assertSame($newSession->id, $menuData['session']['id'] ?? null);
+        $this->getJson(route('customer.status', $token).'?session_id='.$oldSession->id)
+            ->assertOk()
+            ->assertJsonPath('session', null);
 
         $this->postJson(route('customer.orders.store', $token), [
+            'session_id' => $oldSession->id,
             'items' => [$product->id => 1],
         ])->assertUnprocessable()
-            ->assertJsonPath('message', 'Bu masa şu anda QR siparişine açık değil. Garsondan masayı açmasını isteyin.');
+            ->assertJsonPath('message', 'Bu QR oturumu sona erdi. Sipariş vermek için masadaki QR kodu yeniden okutun.');
 
-        $this->assertDatabaseCount('orders', 0);
-        $this->assertDatabaseCount('table_sessions', 1);
+        $this->postJson(route('customer.orders.store', $token), [
+            'session_id' => $newSession->id,
+            'items' => [$product->id => 1],
+        ])->assertOk();
+
+        $this->assertDatabaseHas('orders', ['table_session_id' => $newSession->id]);
+        $this->assertDatabaseCount('orders', 1);
     }
 
     public function test_waiter_can_pause_qr_orders_without_closing_the_bill(): void
@@ -81,6 +107,7 @@ class QrOrderingFlowTest extends TestCase
             ->assertSee(__('customer.ordering_unavailable'));
 
         $this->postJson(route('customer.orders.store', $token), [
+            'session_id' => $session->id,
             'items' => [$product->id => 1],
         ])->assertUnprocessable()
             ->assertJsonPath('message', 'Bu masa şu anda QR siparişine açık değil. Garsondan masayı açmasını isteyin.');
@@ -89,14 +116,16 @@ class QrOrderingFlowTest extends TestCase
             ->assertRedirect();
 
         $this->postJson(route('customer.orders.store', $token), [
+            'session_id' => $session->id,
             'items' => [$product->id => 1],
         ])->assertOk();
     }
 
     public function test_table_accepts_only_one_unacknowledged_qr_order_at_a_time(): void
     {
-        [$cafe, $branch, , $token, $product] = $this->createCafeTableAndProduct();
-        $payload = ['lines' => [['product_id' => $product->id, 'quantity' => 1]]];
+        [$cafe, $branch, $table, $token, $product] = $this->createCafeTableAndProduct();
+        $session = TableSession::query()->where('dining_table_id', $table->id)->firstOrFail();
+        $payload = ['session_id' => $session->id, 'lines' => [['product_id' => $product->id, 'quantity' => 1]]];
 
         $this->postJson(route('customer.orders.store', $token), $payload)
             ->assertOk()
@@ -133,10 +162,11 @@ class QrOrderingFlowTest extends TestCase
 
     public function test_order_rejects_products_from_another_cafe(): void
     {
-        [, , , $token] = $this->createCafeTableAndProduct();
+        [, , $table, $token] = $this->createCafeTableAndProduct();
         [$otherCafe, $otherBranch, $otherTable, , $otherProduct] = $this->createCafeTableAndProduct('Yabancı kafe');
 
         $this->post(route('customer.orders.store', $token), [
+            'session_id' => $this->qrSessionId($table),
             'items' => [$otherProduct->id => 1],
         ])->assertSessionHasErrors('items');
 
@@ -147,7 +177,10 @@ class QrOrderingFlowTest extends TestCase
     {
         [, , $table, $token, $product] = $this->createCafeTableAndProduct('Hesap isteyen kafe', Cafe::POLICY_REQUIRED);
 
-        $this->post(route('customer.orders.store', $token), ['items' => [$product->id => 1]])
+        $this->post(route('customer.orders.store', $token), [
+            'session_id' => $this->qrSessionId($table),
+            'items' => [$product->id => 1],
+        ])
             ->assertRedirect(route('customer.login', $token));
 
         $this->post(route('customer.register.store', $token), [
@@ -186,6 +219,7 @@ class QrOrderingFlowTest extends TestCase
         [, , $table, $token, $product] = $this->createCafeTableAndProduct();
 
         $this->post(route('customer.orders.store', $token), [
+            'session_id' => $this->qrSessionId($table),
             'items' => [$product->id => 1],
         ])->assertRedirect();
 
@@ -293,5 +327,10 @@ class QrOrderingFlowTest extends TestCase
         ]);
 
         return [$cafe, $branch, $table, $table->token(), $product];
+    }
+
+    private function qrSessionId(DiningTable $table): int
+    {
+        return (int) $table->openSession()?->id;
     }
 }

@@ -45,6 +45,7 @@ class LoyaltyOrderFlowTest extends TestCase
 
         $this->actingAs($customer)->get(route('customer.menu', $table->token()))->assertSee('100 puan indirimi');
         $this->actingAs($customer)->post(route('customer.orders.store', $table->token()), [
+            'session_id' => $table->openSession()->id,
             'items' => [$product->id => 1], 'loyalty_campaign_id' => $campaign->id,
         ])->assertRedirect(route('customer.menu', $table->token()));
 

@@ -76,6 +76,7 @@ describe("Netlify/Turso API customer and staff flow", () => {
             `/api/tables/${fixture.token}/orders`,
             "POST",
             {
+                tableSessionId: fixture.sessionId,
                 lines: [
                     {
                         productId: fixture.productId,
@@ -111,6 +112,7 @@ describe("Netlify/Turso API customer and staff flow", () => {
             `/api/tables/${fixture.token}/orders`,
             "POST",
             {
+                tableSessionId: fixture.sessionId,
                 lines: [
                     {
                         productId: fixture.productId,
@@ -178,6 +180,7 @@ describe("Netlify/Turso API customer and staff flow", () => {
         expect(conflict.status).toBe(409);
 
         const order = await api(`/api/tables/${fixture.token}/orders`, "POST", {
+            tableSessionId: fixture.sessionId,
             lines: [{ productId: fixture.productId, quantity: 1 }],
         });
         const orderPayload = await order.json();
@@ -673,7 +676,743 @@ describe("Netlify/Turso API customer and staff flow", () => {
         );
         expect(noCsrf.status).toBe(403);
     });
+
+    it("shows the cafe owner's subscription and blocks the active or duplicate pending plan", async () => {
+        await database.execute({
+            sql: "DELETE FROM cafe_subscriptions WHERE cafe_id=1",
+        });
+        const owner = await createOwnerSession();
+        const entry = await planByCode("giris");
+        const middle = await planByCode("orta");
+        const current = await createSubscription(entry.id, {
+            cafeId: 1,
+            ownerId: owner.userId,
+            features: {
+                ...JSON.parse(String(entry.features_json)),
+                reports: true,
+            },
+        });
+
+        const overview = await api(
+            "/api/manage/subscription",
+            "GET",
+            undefined,
+            {
+                cookie: owner.cookie,
+            },
+        );
+        expect(overview.status).toBe(200);
+        expect(await overview.json()).toMatchObject({
+            subscription: {
+                id: current.id,
+                planName: "Giriş",
+                annualPriceCents: 1000000,
+                maxTables: 10,
+                maxBranches: 2,
+                features: { reports: true, customer_accounts: false },
+            },
+            usage: { tables: 1, branches: 1 },
+            renewablePlanId: entry.id,
+        });
+
+        const requested = await api(
+            "/api/manage/subscription-requests",
+            "POST",
+            { planId: middle.id, cafeId: 999 },
+            { cookie: owner.cookie, csrf: owner.csrf },
+        );
+        expect(requested.status).toBe(201);
+        const requestBody = await requested.json();
+        expect(requestBody.request).toMatchObject({
+            planName: "Orta",
+            status: "pending",
+        });
+        expect(requestBody.request.cafeId).toBe(1);
+
+        const duplicate = await api(
+            "/api/manage/subscription-requests",
+            "POST",
+            { planId: entry.id },
+            { cookie: owner.cookie, csrf: owner.csrf },
+        );
+        expect(duplicate.status).toBe(409);
+        const rows = await database.execute({
+            sql: "SELECT cafe_id,requested_by,pending_cafe_id,subscription_plan_id,features_snapshot_json FROM cafe_subscription_requests",
+        });
+        expect(rows.rows).toHaveLength(1);
+        expect(rows.rows[0]).toMatchObject({
+            cafe_id: 1,
+            pending_cafe_id: 1,
+            requested_by: owner.userId,
+            subscription_plan_id: middle.id,
+        });
+        expect(
+            JSON.parse(String(rows.rows[0]?.features_snapshot_json)),
+        ).toEqual(JSON.parse(String(middle.features_json)));
+    });
+
+    it("allows a cafe owner to request renewal of the current plan", async () => {
+        await database.execute({
+            sql: "DELETE FROM cafe_subscriptions WHERE cafe_id=1",
+        });
+        const owner = await createOwnerSession();
+        const entry = await planByCode("giris");
+        const current = await createSubscription(entry.id, {
+            cafeId: 1,
+            ownerId: owner.userId,
+        });
+
+        const requested = await api(
+            "/api/manage/subscription-requests",
+            "POST",
+            { planId: entry.id },
+            { cookie: owner.cookie, csrf: owner.csrf },
+        );
+        expect(requested.status).toBe(201);
+        expect((await requested.json()).request).toMatchObject({
+            planId: entry.id,
+            status: "pending",
+        });
+
+        const admin = await createPlatformSession();
+        const requestRows = await database.execute({
+            sql: "SELECT id FROM cafe_subscription_requests WHERE pending_cafe_id=1",
+        });
+        const requestId = Number(requestRows.rows[0]?.id);
+        const approved = await api(
+            `/api/platform/subscription-requests/${requestId}/approve`,
+            "POST",
+            { paymentReceived: true },
+            { cookie: admin.cookie, csrf: admin.csrf },
+        );
+        expect(approved.status).toBe(200);
+        const periods = await database.execute({
+            sql: "SELECT starts_at,ends_at FROM cafe_subscriptions WHERE cafe_id=1 AND id<>? ORDER BY id DESC LIMIT 1",
+            args: [current.id],
+        });
+        expect(periods.rows[0]?.starts_at).toBe(current.endsAt);
+        expect(Date.parse(String(periods.rows[0]?.ends_at))).toBeGreaterThan(
+            Date.parse(current.endsAt),
+        );
+    });
+
+    it("requires manual payment confirmation and approves a request into a snapshotted future term", async () => {
+        await database.execute({
+            sql: "DELETE FROM cafe_subscriptions WHERE cafe_id=1",
+        });
+        const owner = await createOwnerSession();
+        const admin = await createPlatformSession();
+        const entry = await planByCode("giris");
+        const middle = await planByCode("orta");
+        const current = await createSubscription(entry.id, {
+            cafeId: 1,
+            ownerId: owner.userId,
+        });
+        const requestResponse = await api(
+            "/api/manage/subscription-requests",
+            "POST",
+            { planId: middle.id },
+            { cookie: owner.cookie, csrf: owner.csrf },
+        );
+        const requestId = Number((await requestResponse.json()).request.id);
+
+        const list = await api(
+            "/api/platform/subscription-requests",
+            "GET",
+            undefined,
+            {
+                cookie: admin.cookie,
+            },
+        );
+        expect(list.status).toBe(200);
+        expect((await list.json()).requests).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    id: requestId,
+                    cafeName: "Cafe Test",
+                    status: "pending",
+                }),
+            ]),
+        );
+
+        const unpaid = await api(
+            `/api/platform/subscription-requests/${requestId}/approve`,
+            "POST",
+            { paymentReceived: false },
+            { cookie: admin.cookie, csrf: admin.csrf },
+        );
+        expect(unpaid.status).toBe(422);
+        expect(
+            (
+                await database.execute({
+                    sql: "SELECT COUNT(*) AS count FROM cafe_subscriptions",
+                })
+            ).rows[0]?.count,
+        ).toBe(1);
+
+        const approved = await api(
+            `/api/platform/subscription-requests/${requestId}/approve`,
+            "POST",
+            { paymentReceived: true },
+            { cookie: admin.cookie, csrf: admin.csrf },
+        );
+        expect(approved.status).toBe(200);
+        const requestRow = await database.execute({
+            sql: "SELECT status,reviewed_by,cafe_subscription_id,pending_cafe_id FROM cafe_subscription_requests WHERE id=?",
+            args: [requestId],
+        });
+        expect(requestRow.rows[0]).toMatchObject({
+            status: "approved",
+            reviewed_by: admin.userId,
+            pending_cafe_id: null,
+        });
+        const next = await database.execute({
+            sql: "SELECT * FROM cafe_subscriptions WHERE id=?",
+            args: [Number(requestRow.rows[0]?.cafe_subscription_id)],
+        });
+        expect(next.rows[0]).toMatchObject({
+            cafe_id: 1,
+            subscription_plan_id: middle.id,
+            plan_name_snapshot: "Orta",
+            annual_price_snapshot_cents: Number(middle.annual_price_cents),
+            max_tables_snapshot: 20,
+            max_branches_snapshot: null,
+            status: "active",
+            activated_by: admin.userId,
+        });
+        expect(String(next.rows[0]?.starts_at)).toBe(current.endsAt);
+        expect(
+            JSON.parse(String(next.rows[0]?.features_snapshot_json)),
+        ).toEqual(JSON.parse(String(middle.features_json)));
+        const secondApproval = await api(
+            `/api/platform/subscription-requests/${requestId}/approve`,
+            "POST",
+            { paymentReceived: true },
+            { cookie: admin.cookie, csrf: admin.csrf },
+        );
+        expect(secondApproval.status).toBe(409);
+        expect(
+            (
+                await database.execute({
+                    sql: "SELECT COUNT(*) AS count FROM cafe_subscriptions",
+                })
+            ).rows[0]?.count,
+        ).toBe(2);
+    });
+
+    it("lets only platform admins edit yearly plans and cafe package terms while preserving history", async () => {
+        await database.execute({
+            sql: "DELETE FROM cafe_subscriptions WHERE cafe_id=1",
+        });
+        const owner = await createOwnerSession();
+        const admin = await createPlatformSession();
+        const entry = await planByCode("giris");
+        const middle = await planByCode("orta");
+        const original = await createSubscription(entry.id, {
+            cafeId: 1,
+            ownerId: owner.userId,
+            features: {
+                ...JSON.parse(String(entry.features_json)),
+                reports: true,
+            },
+        });
+        const denied = await api(
+            "/api/platform/subscription-plans",
+            "GET",
+            undefined,
+            {
+                cookie: owner.cookie,
+            },
+        );
+        expect(denied.status).toBe(403);
+
+        const plans = await api(
+            "/api/platform/subscription-plans",
+            "GET",
+            undefined,
+            {
+                cookie: admin.cookie,
+            },
+        );
+        expect(plans.status).toBe(200);
+        expect((await plans.json()).plans).toHaveLength(3);
+
+        const savedPlan = await api(
+            `/api/platform/subscription-plans/${entry.id}`,
+            "PATCH",
+            {
+                name: "Başlangıç",
+                annualPriceCents: 1499900,
+                maxTables: 12,
+                maxBranches: null,
+                features: {
+                    customer_accounts: true,
+                    coupons: false,
+                    loyalty: false,
+                    reports: false,
+                    announcements: true,
+                },
+                isActive: true,
+            },
+            { cookie: admin.cookie, csrf: admin.csrf },
+        );
+        expect(savedPlan.status).toBe(200);
+        const oldSnapshot = await database.execute({
+            sql: "SELECT plan_name_snapshot,annual_price_snapshot_cents,max_tables_snapshot,max_branches_snapshot,features_snapshot_json FROM cafe_subscriptions WHERE id=?",
+            args: [original.id],
+        });
+        expect(oldSnapshot.rows[0]).toMatchObject({
+            plan_name_snapshot: "Giriş",
+            annual_price_snapshot_cents: 1000000,
+            max_tables_snapshot: 10,
+            max_branches_snapshot: 2,
+        });
+        expect(
+            JSON.parse(String(oldSnapshot.rows[0]?.features_snapshot_json))
+                .reports,
+        ).toBe(true);
+
+        const endDate = new Date(Date.now() + 120 * 86400_000)
+            .toISOString()
+            .slice(0, 10);
+        const override = await api(
+            "/api/platform/cafes/1/subscription",
+            "PATCH",
+            {
+                subscriptionId: original.id,
+                planId: middle.id,
+                endsOn: endDate,
+                reason: "Kafe talebiyle paket ve tarih güncellendi.",
+            },
+            { cookie: admin.cookie, csrf: admin.csrf },
+        );
+        expect(override.status).toBe(200);
+        const records = await database.execute({
+            sql: "SELECT id,status,subscription_plan_id,plan_name_snapshot,annual_price_snapshot_cents,max_tables_snapshot,max_branches_snapshot,features_snapshot_json FROM cafe_subscriptions WHERE cafe_id=1 ORDER BY id",
+        });
+        expect(records.rows).toHaveLength(2);
+        expect(records.rows[0]).toMatchObject({
+            id: original.id,
+            status: "replaced",
+        });
+        expect(records.rows[1]).toMatchObject({
+            subscription_plan_id: middle.id,
+            plan_name_snapshot: "Orta",
+            annual_price_snapshot_cents: Number(middle.annual_price_cents),
+            max_tables_snapshot: 20,
+            max_branches_snapshot: null,
+            status: "active",
+        });
+        expect(
+            JSON.parse(String(records.rows[1]?.features_snapshot_json)),
+        ).toEqual(JSON.parse(String(middle.features_json)));
+        expect(
+            await database.execute({
+                sql: "SELECT 1 FROM activity_logs WHERE action='subscription.admin_overridden' AND user_id=? AND cafe_id=1",
+                args: [admin.userId],
+            }),
+        ).toMatchObject({ rows: [expect.any(Object)] });
+    });
+
+    it("enforces the active package's branch, table, and customer-account limits on API writes", async () => {
+        await database.execute({
+            sql: "DELETE FROM cafe_subscriptions WHERE cafe_id=1",
+        });
+        const owner = await createOwnerSession();
+        const entry = await planByCode("giris");
+        const current = await createSubscription(entry.id, {
+            cafeId: 1,
+            ownerId: owner.userId,
+            maxTables: 1,
+            maxBranches: 1,
+            features: {
+                ...JSON.parse(String(entry.features_json)),
+                customer_accounts: false,
+            },
+        });
+
+        const tableLimit = await api(
+            "/api/manage/branches/1/tables",
+            "POST",
+            { name: "Masa sınır" },
+            { cookie: owner.cookie, csrf: owner.csrf },
+        );
+        expect(tableLimit.status).toBe(403);
+        const branchLimit = await api(
+            "/api/manage/branches",
+            "POST",
+            { name: "İkinci şube" },
+            { cookie: owner.cookie, csrf: owner.csrf },
+        );
+        expect(branchLimit.status).toBe(403);
+        const register = await api("/api/auth/customer/register", "POST", {
+            token: fixture.token,
+            name: "Yeni Müşteri",
+            email: "new-customer@example.test",
+            password: "CustomerPass123",
+        });
+        expect(register.status).toBe(403);
+
+        await database.execute({
+            sql: "UPDATE cafe_subscriptions SET max_tables_snapshot=2,max_branches_snapshot=NULL WHERE id=?",
+            args: [current.id],
+        });
+        const createdTable = await api(
+            "/api/manage/branches/1/tables",
+            "POST",
+            { name: "Masa iki" },
+            { cookie: owner.cookie, csrf: owner.csrf },
+        );
+        expect(createdTable.status).toBe(201);
+        const nextTable = await api(
+            "/api/manage/branches/1/tables",
+            "POST",
+            { name: "Masa üç" },
+            { cookie: owner.cookie, csrf: owner.csrf },
+        );
+        expect(nextTable.status).toBe(403);
+        const secondBranch = await api(
+            "/api/manage/branches",
+            "POST",
+            { name: "İkinci şube" },
+            { cookie: owner.cookie, csrf: owner.csrf },
+        );
+        expect(secondBranch.status).toBe(201);
+    });
 });
+
+describe("cafe owner subscription features", () => {
+    it("reports paid sales and manages branch announcements", async () => {
+        const owner = await createOwnerSession();
+        const now = new Date().toISOString();
+        const day = new Intl.DateTimeFormat("sv-SE", {
+            timeZone: "Europe/Istanbul",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+        }).format(new Date());
+        const paidAt = new Date(`${day}T01:00:00+03:00`).toISOString();
+        const paid = await database.execute({
+            sql: `INSERT INTO orders (cafe_id,branch_id,table_session_id,order_number,status,subtotal_cents,total_cents,paid_at,created_at,updated_at)
+                  VALUES (1,1,?,'RPT-001','paid',12000,12000,?,?,?) RETURNING id`,
+            args: [fixture.sessionId, paidAt, now, now],
+        });
+        const orderId = Number(paid.rows[0]?.id);
+        await database.execute({
+            sql: "INSERT INTO order_items (order_id,name_snapshot,unit_price_cents,quantity,line_total_cents,created_at,updated_at) VALUES (?,'Buzlu latte',12000,1,12000,?,?)",
+            args: [orderId, now, now],
+        });
+        await database.execute({
+            sql: `INSERT INTO orders (cafe_id,branch_id,table_session_id,order_number,status,subtotal_cents,total_cents,cancelled_at,created_at,updated_at)
+                  VALUES (1,1,?,'RPT-002','cancelled',5000,5000,?,?,?)`,
+            args: [fixture.sessionId, paidAt, now, now],
+        });
+
+        const report = await api(
+            `/api/manage/reports?from=${day}&to=${day}`,
+            "GET",
+            undefined,
+            { cookie: owner.cookie },
+        );
+        expect(report.status).toBe(200);
+        expect(await report.json()).toMatchObject({
+            summary: {
+                paidOrders: 1,
+                revenueCents: 12000,
+                averageOrderCents: 12000,
+                cancelledOrders: 1,
+            },
+            daily: [{ day, paidOrders: 1, revenueCents: 12000 }],
+            topProducts: [
+                { name: "Buzlu latte", quantity: 1, revenueCents: 12000 },
+            ],
+        });
+
+        const created = await api(
+            "/api/manage/announcements",
+            "POST",
+            {
+                type: "promotion",
+                title: "Öğle kampanyası",
+                body: "Saat 15.00'e kadar geçerli.",
+                branchId: 1,
+                startsAt: null,
+                endsAt: null,
+                isActive: true,
+            },
+            { cookie: owner.cookie, csrf: owner.csrf },
+        );
+        expect(created.status).toBe(201);
+        const announcementId = Number((await created.json()).id);
+        const menu = await api(`/api/tables/${fixture.token}/menu`);
+        expect((await menu.json()).announcements).toMatchObject([
+            { id: announcementId, title: "Öğle kampanyası" },
+        ]);
+
+        const invalidBranch = await api(
+            "/api/manage/announcements",
+            "POST",
+            {
+                title: "Yanlış şube",
+                branchId: 999,
+                startsAt: null,
+                endsAt: null,
+                isActive: true,
+            },
+            { cookie: owner.cookie, csrf: owner.csrf },
+        );
+        expect(invalidBranch.status).toBe(422);
+
+        const disabled = await api(
+            `/api/manage/announcements/${announcementId}`,
+            "PATCH",
+            {
+                type: "promotion",
+                title: "Öğle kampanyası",
+                body: "Saat 15.00'e kadar geçerli.",
+                branchId: 1,
+                startsAt: null,
+                endsAt: null,
+                isActive: false,
+            },
+            { cookie: owner.cookie, csrf: owner.csrf },
+        );
+        expect(disabled.status).toBe(200);
+        expect((await api(`/api/tables/${fixture.token}/menu`)).status).toBe(
+            200,
+        );
+        const hiddenMenu = await api(`/api/tables/${fixture.token}/menu`);
+        expect((await hiddenMenu.json()).announcements).toEqual([]);
+
+        const wrongRoleLogin = await api("/api/auth/login", "POST", {
+            email: fixture.waiterEmail,
+            password: fixture.waiterPassword,
+        });
+        const wrongRoleCookie =
+            wrongRoleLogin.headers.get("set-cookie")?.split(";")[0] ?? "";
+        const forbiddenReport = await api(
+            "/api/manage/reports",
+            "GET",
+            undefined,
+            { cookie: wrongRoleCookie },
+        );
+        expect(forbiddenReport.status).toBe(403);
+    });
+
+    it("creates usable coupons and enforces package features", async () => {
+        const owner = await createOwnerSession();
+        const created = await api(
+            "/api/manage/coupons",
+            "POST",
+            {
+                code: "welcome15",
+                type: "percent",
+                value: 15,
+                minSubtotalCents: 10000,
+                usageLimit: 5,
+                startsAt: null,
+                endsAt: null,
+                isActive: true,
+            },
+            { cookie: owner.cookie, csrf: owner.csrf },
+        );
+        expect(created.status).toBe(201);
+
+        const check = await api(
+            `/api/tables/${fixture.token}/coupons/check`,
+            "POST",
+            { code: "welcome15", subtotalCents: 20000 },
+        );
+        expect(check.status).toBe(200);
+        expect(await check.json()).toMatchObject({
+            valid: true,
+            discountCents: 3000,
+        });
+
+        const duplicate = await api(
+            "/api/manage/coupons",
+            "POST",
+            {
+                code: "WELCOME15",
+                type: "fixed",
+                value: 1000,
+                minSubtotalCents: 0,
+                usageLimit: null,
+                startsAt: null,
+                endsAt: null,
+                isActive: true,
+            },
+            { cookie: owner.cookie, csrf: owner.csrf },
+        );
+        expect(duplicate.status).toBe(409);
+
+        await database.execute({
+            sql: "UPDATE cafe_subscriptions SET features_snapshot_json=? WHERE cafe_id=1",
+            args: [
+                JSON.stringify({
+                    customer_accounts: true,
+                    coupons: false,
+                    loyalty: true,
+                    reports: false,
+                    announcements: false,
+                }),
+            ],
+        });
+        const gatedList = await api("/api/manage/coupons", "GET", undefined, {
+            cookie: owner.cookie,
+        });
+        expect(gatedList.status).toBe(403);
+        const gatedCheck = await api(
+            `/api/tables/${fixture.token}/coupons/check`,
+            "POST",
+            { code: "WELCOME15", subtotalCents: 20000 },
+        );
+        expect(gatedCheck.status).toBe(403);
+    });
+
+    it("limits report periods to valid ranges", async () => {
+        const owner = await createOwnerSession();
+        const invalid = await api(
+            "/api/manage/reports?from=2026-02-30&to=2026-03-02",
+            "GET",
+            undefined,
+            { cookie: owner.cookie },
+        );
+        expect(invalid.status).toBe(422);
+    });
+
+    it("normalizes offset timestamps before storing owner announcements", async () => {
+        const owner = await createOwnerSession();
+        const response = await api(
+            "/api/manage/announcements",
+            "POST",
+            {
+                title: "Saat dönüşümü",
+                startsAt: "2026-01-01T10:00:00+03:00",
+                endsAt: "2026-01-01T08:00:00Z",
+                isActive: true,
+            },
+            { cookie: owner.cookie, csrf: owner.csrf },
+        );
+        expect(response.status).toBe(201);
+        const stored = await database.execute({
+            sql: "SELECT starts_at,ends_at FROM announcements WHERE title='Saat dönüşümü'",
+        });
+        expect(stored.rows[0]).toMatchObject({
+            starts_at: "2026-01-01T07:00:00.000Z",
+            ends_at: "2026-01-01T08:00:00.000Z",
+        });
+    });
+});
+
+async function createOwnerSession() {
+    const now = new Date().toISOString();
+    await database.execute({
+        sql: "INSERT INTO users (cafe_id,name,email,password_hash,role,is_active,created_at,updated_at) VALUES (1,'Kafe Sahibi','owner@example.test',?,'cafe_owner',1,?,?)",
+        args: [hashSync("OwnerPass123", 4), now, now],
+    });
+    const login = await api("/api/auth/login", "POST", {
+        email: "owner@example.test",
+        password: "OwnerPass123",
+    });
+    const payload = await login.json();
+    return {
+        userId: Number(payload.user.id),
+        cookie: login.headers.get("set-cookie")?.split(";")[0] ?? "",
+        csrf: String(payload.csrfToken),
+    };
+}
+
+async function createPlatformSession() {
+    const now = new Date().toISOString();
+    await database.execute({
+        sql: "INSERT INTO users (name,email,password_hash,role,is_active,created_at,updated_at) VALUES ('Platform Admin','admin@example.test',?,'platform_admin',1,?,?)",
+        args: [hashSync("AdminPass123", 4), now, now],
+    });
+    const login = await api("/api/auth/login", "POST", {
+        email: "admin@example.test",
+        password: "AdminPass123",
+    });
+    const payload = await login.json();
+    return {
+        userId: Number(payload.user.id),
+        cookie: login.headers.get("set-cookie")?.split(";")[0] ?? "",
+        csrf: String(payload.csrfToken),
+    };
+}
+
+type SubscriptionPlanRow = {
+    id: number;
+    name: string;
+    annual_price_cents: number;
+    max_tables: number;
+    max_branches: number | null;
+    features_json: string;
+};
+
+async function planByCode(code: string): Promise<SubscriptionPlanRow> {
+    const result = await database.execute({
+        sql: "SELECT * FROM subscription_plans WHERE code=?",
+        args: [code],
+    });
+    const row = result.rows[0];
+    if (!row) throw new Error(`Paket bulunamadı: ${code}`);
+    return {
+        id: Number(row.id),
+        name: String(row.name),
+        annual_price_cents: Number(row.annual_price_cents),
+        max_tables: Number(row.max_tables),
+        max_branches:
+            row.max_branches === null ? null : Number(row.max_branches),
+        features_json: String(row.features_json),
+    };
+}
+
+async function createSubscription(
+    planId: number,
+    options: {
+        cafeId: number;
+        ownerId: number;
+        maxTables?: number;
+        maxBranches?: number | null;
+        features?: Record<string, boolean>;
+    },
+) {
+    const plan = await database.execute({
+        sql: "SELECT * FROM subscription_plans WHERE id=?",
+        args: [planId],
+    });
+    const row = plan.rows[0] as unknown as SubscriptionPlanRow | undefined;
+    if (!row) throw new Error(`Paket bulunamadı: ${planId}`);
+    const startsAt = new Date(Date.now() - 86400_000).toISOString();
+    const endsAt = new Date(Date.now() + 365 * 86400_000).toISOString();
+    const inserted = await database.execute({
+        sql: `INSERT INTO cafe_subscriptions (cafe_id,subscription_plan_id,activated_by,plan_name_snapshot,status,starts_at,ends_at,
+                annual_price_snapshot_cents,max_tables_snapshot,max_branches_snapshot,features_snapshot_json,created_at,updated_at)
+              VALUES (?,?,?,?,'active',?,?,?,?,?,?,?,?) RETURNING id`,
+        args: [
+            options.cafeId,
+            planId,
+            options.ownerId,
+            String(row?.name),
+            startsAt,
+            endsAt,
+            Number(row?.annual_price_cents),
+            options.maxTables ?? Number(row?.max_tables),
+            options.maxBranches === undefined
+                ? row?.max_branches === null
+                    ? null
+                    : Number(row?.max_branches)
+                : options.maxBranches,
+            JSON.stringify(
+                options.features ?? JSON.parse(String(row?.features_json)),
+            ),
+            startsAt,
+            startsAt,
+        ],
+    });
+    return { id: Number(inserted.rows[0]?.id), startsAt, endsAt };
+}
 
 async function createFixture(client: Client) {
     const now = new Date().toISOString();
@@ -681,6 +1420,18 @@ async function createFixture(client: Client) {
         sql: `INSERT INTO cafes (name,slug,status,registration_policy,loyalty_enabled,points_per_100,created_at,updated_at)
               VALUES ('Cafe Test','cafe-test','active','optional',1,1,?,?)`,
         args: [now, now],
+    });
+    await client.execute({
+        sql: `INSERT INTO cafe_subscriptions (cafe_id,subscription_plan_id,plan_name_snapshot,status,starts_at,ends_at,
+                annual_price_snapshot_cents,max_tables_snapshot,max_branches_snapshot,features_snapshot_json,created_at,updated_at)
+              SELECT 1,id,name,'active',?, ?,annual_price_cents,max_tables,max_branches,features_json,?,?
+              FROM subscription_plans WHERE code='orta'`,
+        args: [
+            new Date(Date.now() - 86400_000).toISOString(),
+            new Date(Date.now() + 365 * 86400_000).toISOString(),
+            now,
+            now,
+        ],
     });
     await client.execute({
         sql: `INSERT INTO branches (cafe_id,name,slug,uses_shared_menu,is_active,created_at,updated_at) VALUES (1,'Merkez','merkez',1,1,?,?)`,

@@ -56,6 +56,7 @@ class ProductOptionsFlowTest extends TestCase
             ->assertSee('+₺30,00');
 
         $this->post(route('customer.orders.store', $token), [
+            'session_id' => $this->qrSessionId($table),
             'items' => [$product->id => 2],
             'options' => [$product->id => [$group->id => $paid->id]],
         ])->assertRedirect(route('customer.menu', $token));
@@ -103,9 +104,13 @@ class ProductOptionsFlowTest extends TestCase
         [, , $otherProduct] = $this->createCafeProduct('Başka latte', '100.00', $cafe, $branch);
         [, $otherFree] = $this->createFlavorOptions($otherProduct->id);
 
-        $this->post(route('customer.orders.store', $token), ['items' => [$product->id => 1]])
+        $this->post(route('customer.orders.store', $token), [
+            'session_id' => $this->qrSessionId($table),
+            'items' => [$product->id => 1],
+        ])
             ->assertSessionHasErrors('options');
         $this->post(route('customer.orders.store', $token), [
+            'session_id' => $this->qrSessionId($table),
             'items' => [$product->id => 1],
             'options' => [$product->id => [$group->id => $otherFree->id]],
         ])->assertSessionHasErrors('options');
@@ -115,13 +120,14 @@ class ProductOptionsFlowTest extends TestCase
 
     public function test_options_for_products_with_zero_quantity_do_not_block_other_order_items(): void
     {
-        [$cafe, $branch, $product, , $token] = $this->createCafeProduct();
+        [$cafe, $branch, $product, $table, $token] = $this->createCafeProduct();
         [$group, $free] = $this->createFlavorOptions($product->id, true);
         [, , $otherProduct] = $this->createCafeProduct('Başka latte', '100.00', $cafe, $branch);
         [$otherGroup, , $otherPaid] = $this->createFlavorOptions($otherProduct->id, true);
 
         $items = [$product->id => 1, $otherProduct->id => 0] + array_fill_keys(range(10000, 10034), 0);
         $this->post(route('customer.orders.store', $token), [
+            'session_id' => $this->qrSessionId($table),
             'items' => $items,
             'options' => [
                 $product->id => [$group->id => $free->id],
@@ -135,7 +141,7 @@ class ProductOptionsFlowTest extends TestCase
 
     public function test_inactive_customer_account_cannot_place_an_order(): void
     {
-        [$cafe, , $product, , $token] = $this->createCafeProduct();
+        [$cafe, , $product, $table, $token] = $this->createCafeProduct();
         $customer = User::factory()->create([
             'role' => User::ROLE_CUSTOMER,
             'cafe_id' => $cafe->id,
@@ -143,6 +149,7 @@ class ProductOptionsFlowTest extends TestCase
         ]);
 
         $this->actingAs($customer)->post(route('customer.orders.store', $token), [
+            'session_id' => $this->qrSessionId($table),
             'items' => [$product->id => 1],
         ])->assertSessionHasErrors('items');
 
@@ -168,9 +175,10 @@ class ProductOptionsFlowTest extends TestCase
 
     public function test_order_rejects_more_than_thirty_selected_product_lines(): void
     {
-        [, , , , $token] = $this->createCafeProduct();
+        [, , , $table, $token] = $this->createCafeProduct();
 
         $this->post(route('customer.orders.store', $token), [
+            'session_id' => $this->qrSessionId($table),
             'items' => array_fill_keys(range(10000, 10030), 1),
         ])->assertSessionHasErrors('items');
 
@@ -226,6 +234,11 @@ class ProductOptionsFlowTest extends TestCase
         ]);
 
         return [$cafe, $branch, $product, $table, $table->token()];
+    }
+
+    private function qrSessionId(DiningTable $table): int
+    {
+        return (int) $table->openSession()?->id;
     }
 
     /** @return array{MenuOptionGroup, MenuOption, MenuOption} */

@@ -67,6 +67,7 @@ interface MenuData {
     products: MenuProduct[];
     featuredIds: number[];
     session: {
+        id: number;
         isOpen: boolean;
         qrOrderingEnabled: boolean;
         qrOrderPending: boolean;
@@ -142,6 +143,11 @@ export function CustomerMenuPage() {
     const [submitting, setSubmitting] = useState(false);
     const [toast, setToast] = useState("");
     const popularRef = useRef<HTMLDivElement>(null);
+    const pinnedVisitRef = useRef<{
+        token: string;
+        tableSessionId: number | null;
+    } | null>(null);
+    const [tableSessionId, setTableSessionId] = useState<number | null>(null);
 
     const loadMenu = useCallback(
         async (quiet = false) => {
@@ -149,6 +155,14 @@ export function CustomerMenuPage() {
                 const data = await apiRequest<MenuData>(
                     `/api/tables/${encodeURIComponent(token)}/menu`,
                 );
+                if (pinnedVisitRef.current?.token !== token) {
+                    const pinnedSessionId = data.session?.id ?? null;
+                    pinnedVisitRef.current = {
+                        token,
+                        tableSessionId: pinnedSessionId,
+                    };
+                    setTableSessionId(pinnedSessionId);
+                }
                 setMenu(data);
                 setError("");
             } catch (reason) {
@@ -220,13 +234,24 @@ export function CustomerMenuPage() {
         0,
     );
     const itemCount = cart.reduce((sum, line) => sum + line.quantity, 0);
+    const visitSessionChanged =
+        menu?.session !== null &&
+        menu?.session !== undefined &&
+        menu.session.id !== tableSessionId;
+    const orderingAvailableForVisit = Boolean(
+        menu?.orderingAvailable &&
+        tableSessionId !== null &&
+        menu.session?.id === tableSessionId,
+    );
 
     function openProduct(product: MenuProduct) {
-        if (!menu?.orderingAvailable) {
+        if (!orderingAvailableForVisit) {
             setToast(
-                menu?.session?.qrOrderPending
-                    ? "Önceki siparişin garson tarafından alınmasını bekleyin."
-                    : "Sipariş için garsonun masayı açması gerekiyor.",
+                visitSessionChanged
+                    ? "Masa oturumu yenilendi. Sipariş için QR kodunu yeniden okut."
+                    : menu?.session?.qrOrderPending
+                      ? "Önceki siparişin garson tarafından alınmasını bekleyin."
+                      : "Sipariş için garsonun masayı açması gerekiyor.",
             );
             return;
         }
@@ -310,7 +335,7 @@ export function CustomerMenuPage() {
     }
 
     function beginCheckout() {
-        if (!menu?.orderingAvailable || cart.length === 0) return;
+        if (!orderingAvailableForVisit || cart.length === 0) return;
         const recommendations = [
             ...new Set(cart.flatMap((line) => line.product.suggestions)),
         ]
@@ -326,13 +351,16 @@ export function CustomerMenuPage() {
     }
 
     async function sendOrder() {
-        if (!menu) return;
+        if (!menu || !orderingAvailableForVisit || tableSessionId === null) {
+            return;
+        }
         setSubmitting(true);
         setError("");
         try {
             const data = await apiPost<{ order: { number: string } }>(
                 `/api/tables/${encodeURIComponent(token)}/orders`,
                 {
+                    tableSessionId,
                     lines: cart.map((line) => ({
                         productId: line.product.id,
                         quantity: line.quantity,
@@ -867,7 +895,7 @@ export function CustomerMenuPage() {
                                 </div>
                                 <button
                                     className="btn-primary w-full rounded-2xl"
-                                    disabled={!menu.orderingAvailable}
+                                    disabled={!orderingAvailableForVisit}
                                     onClick={beginCheckout}
                                     type="button"
                                 >

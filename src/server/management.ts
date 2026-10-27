@@ -9,6 +9,13 @@ import {
     requireRole,
 } from "./auth.js";
 import { decryptQrToken, encryptQrToken } from "./qrTokens.js";
+import { handleOwnerFeatureRequest } from "./ownerFeatures.js";
+import {
+    handleSubscriptionRequest,
+    requireCafeFeature,
+    requireCafeLimit,
+    requireCafeServiceAccess,
+} from "./subscriptions.js";
 import {
     ApiError,
     checkSameOrigin,
@@ -410,6 +417,20 @@ async function updateSettings(
         await readJson(request),
     );
     const database = await getDatabase(environment);
+    if (input.registrationPolicy && input.registrationPolicy !== "guest")
+        await requireCafeFeature(
+            database,
+            cafeId,
+            "customer_accounts",
+            nowIso(environment),
+        );
+    if (input.loyaltyEnabled)
+        await requireCafeFeature(
+            database,
+            cafeId,
+            "loyalty",
+            nowIso(environment),
+        );
     const now = nowIso(environment);
     await database.execute({
         sql: "UPDATE cafes SET registration_policy=COALESCE(?,registration_policy),loyalty_enabled=COALESCE(?,loyalty_enabled),points_per_100=COALESCE(?,points_per_100),updated_at=? WHERE id=?",
@@ -434,6 +455,7 @@ async function getLoyaltyCampaigns(
 ) {
     const cafeId = assertCafeOwner(user);
     const database = await getDatabase(environment);
+    await requireCafeFeature(database, cafeId, "loyalty", nowIso(environment));
     const result = await database.execute({
         sql: "SELECT id,name,type,threshold,points_required,reward_type,reward_cents,reward_basis_points,minimum_order_cents,is_active,starts_at,ends_at FROM loyalty_campaigns WHERE cafe_id=? ORDER BY is_active DESC,id DESC",
         args: [cafeId],
@@ -506,6 +528,7 @@ async function createLoyaltyCampaign(
         await readJson(request),
     );
     const database = await getDatabase(environment);
+    await requireCafeFeature(database, cafeId, "loyalty", nowIso(environment));
     const now = nowIso(environment);
     const result = await database.execute({
         sql: `INSERT INTO loyalty_campaigns (cafe_id,name,type,threshold,points_required,reward_type,reward_cents,reward_basis_points,minimum_order_cents,is_active,created_at,updated_at)
@@ -539,6 +562,7 @@ async function updateLoyaltyCampaign(
         await readJson(request),
     );
     const database = await getDatabase(environment);
+    await requireCafeFeature(database, cafeId, "loyalty", nowIso(environment));
     const result = await database.execute({
         sql: "UPDATE loyalty_campaigns SET is_active=?,updated_at=? WHERE id=? AND cafe_id=?",
         args: [input.active ? 1 : 0, nowIso(environment), campaignId, cafeId],
@@ -645,29 +669,32 @@ async function createBranch(
         }),
         await readJson(request),
     );
-    const database = await getDatabase(environment);
-    const base = slugify(input.name);
-    const count = await database.execute({
-        sql: "SELECT COUNT(*) AS count FROM branches WHERE cafe_id=? AND slug LIKE ?",
-        args: [cafeId, `${base}%`],
-    });
-    const slug = Number(count.rows[0]?.count)
-        ? `${base}-${Number(count.rows[0]?.count) + 1}`
-        : base;
     const now = nowIso(environment);
-    const result = await database.execute({
-        sql: "INSERT INTO branches (cafe_id,name,slug,address,phone,uses_shared_menu,is_active,created_at,updated_at) VALUES (?,?,?,?,?,1,1,?,?) RETURNING id",
-        args: [
-            cafeId,
-            input.name,
-            slug,
-            input.address || null,
-            input.phone || null,
-            now,
-            now,
-        ],
+    const base = slugify(input.name);
+    return withTransaction(environment, async (transaction) => {
+        await requireCafeServiceAccess(transaction, cafeId, now);
+        await requireCafeLimit(transaction, cafeId, "branches", now);
+        const count = await transaction.execute({
+            sql: "SELECT COUNT(*) AS count FROM branches WHERE cafe_id=? AND slug LIKE ?",
+            args: [cafeId, `${base}%`],
+        });
+        const slug = Number(count.rows[0]?.count)
+            ? `${base}-${Number(count.rows[0]?.count) + 1}`
+            : base;
+        const result = await transaction.execute({
+            sql: "INSERT INTO branches (cafe_id,name,slug,address,phone,uses_shared_menu,is_active,created_at,updated_at) VALUES (?,?,?,?,?,1,1,?,?) RETURNING id",
+            args: [
+                cafeId,
+                input.name,
+                slug,
+                input.address || null,
+                input.phone || null,
+                now,
+                now,
+            ],
+        });
+        return { id: Number(result.rows[0]?.id), name: input.name };
     });
-    return { id: Number(result.rows[0]?.id), name: input.name };
 }
 
 async function createCategory(
@@ -1273,27 +1300,41 @@ async function createTable(
         await readJson(request),
     );
     const database = await getDatabase(environment);
-    await cafeForBranch(database, user, branchId, environment);
+    const branch = await cafeForBranch(database, user, branchId, environment);
     const token = newToken(32);
     const now = nowIso(environment);
     try {
-        const result = await database.execute({
-            sql: "INSERT INTO dining_tables (branch_id,name,public_token_hash,public_token_encrypted,is_active,created_at,updated_at) VALUES (?,?,?,?,1,?,?) RETURNING id",
-            args: [
-                branchId,
-                input.name,
-                hash(token),
-                encryptQrToken(token),
-                now,
-                now,
-            ],
-        });
-        await database.execute({
-            sql: `INSERT INTO activity_logs (branch_id,user_id,action,subject_type,subject_id,created_at) VALUES (?,?,'table.created','DiningTable',?,?)`,
-            args: [branchId, user.id, Number(result.rows[0]?.id), now],
-        });
+        const created = await withTransaction(
+            environment,
+            async (transaction) => {
+                await requireCafeServiceAccess(transaction, branch.cafeId, now);
+                await requireCafeLimit(
+                    transaction,
+                    branch.cafeId,
+                    "tables",
+                    now,
+                );
+                const result = await transaction.execute({
+                    sql: "INSERT INTO dining_tables (branch_id,name,public_token_hash,public_token_encrypted,is_active,created_at,updated_at) VALUES (?,?,?,?,1,?,?) RETURNING id",
+                    args: [
+                        branchId,
+                        input.name,
+                        hash(token),
+                        encryptQrToken(token),
+                        now,
+                        now,
+                    ],
+                });
+                const tableId = Number(result.rows[0]?.id);
+                await transaction.execute({
+                    sql: `INSERT INTO activity_logs (branch_id,user_id,action,subject_type,subject_id,created_at) VALUES (?,?,'table.created','DiningTable',?,?)`,
+                    args: [branchId, user.id, tableId, now],
+                });
+                return tableId;
+            },
+        );
         return {
-            id: Number(result.rows[0]?.id),
+            id: created,
             name: input.name,
             qrUrl: `/masa/${token}`,
             token,
@@ -1572,6 +1613,31 @@ export async function handleManagementRequest(
         checkSameOrigin(request);
         requireCsrf(request, user);
     }
+    const subscriptionResponse = await handleSubscriptionRequest(
+        request,
+        path,
+        user,
+        environment,
+    );
+    if (subscriptionResponse) return subscriptionResponse;
+    if (
+        method !== "GET" &&
+        (user.role === "cafe_owner" || user.role === "cafe_manager") &&
+        user.cafeId
+    ) {
+        await requireCafeServiceAccess(
+            await getDatabase(environment),
+            user.cafeId,
+            nowIso(environment),
+        );
+    }
+    const ownerFeatureResponse = await handleOwnerFeatureRequest(
+        request,
+        path,
+        user,
+        environment,
+    );
+    if (ownerFeatureResponse) return ownerFeatureResponse;
     let match: RegExpExecArray | null;
     if (method === "GET" && path === "/api/manage/overview")
         return new Response(
