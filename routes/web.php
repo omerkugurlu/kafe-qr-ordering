@@ -4,6 +4,7 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\CustomerSessionController;
 use App\Http\Controllers\Auth\PasswordResetController;
 use App\Http\Controllers\Auth\RegisteredCustomerController;
+use App\Http\Controllers\PublicMediaController;
 use App\Http\Controllers\Customer\AccountController;
 use App\Http\Controllers\Customer\MenuController;
 use App\Http\Controllers\Customer\OrderController;
@@ -30,6 +31,7 @@ use App\Http\Controllers\Staff\TableSessionController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', fn () => view('home'))->name('home');
+Route::get('/media/{path}', [PublicMediaController::class, 'show'])->where('path', '.*')->name('media.show');
 
 Route::middleware('guest')->group(function (): void {
     Route::get('/giris', [AuthenticatedSessionController::class, 'create'])->name('login');
@@ -113,6 +115,7 @@ Route::middleware(['auth', 'auth.session', 'role:cafe_owner,cafe_manager'])->pre
     Route::patch('/subeler/{branch}/kategoriler/{categoryId}', [MenuCategoryController::class, 'update'])->middleware('throttle:admin-write')->name('categories.update');
     Route::delete('/subeler/{branch}/kategoriler/{categoryId}', [MenuCategoryController::class, 'destroy'])->middleware('throttle:admin-write')->name('categories.destroy');
     Route::post('/subeler/{branch}/urunler', [MenuProductController::class, 'store'])->middleware('throttle:admin-write')->name('products.store');
+    Route::patch('/subeler/{branch}/populer', [MenuProductController::class, 'updateFeatured'])->middleware('throttle:admin-write')->name('branches.featured.update');
     Route::patch('/subeler/{branch}/urunler/{productId}', [MenuProductController::class, 'update'])->middleware('throttle:admin-write')->name('products.update');
     Route::post('/subeler/{branch}/urunler/{productId}/secenek-gruplari', [MenuProductController::class, 'storeOptionGroup'])->middleware('throttle:admin-write')->name('products.option-groups.store');
     Route::patch('/subeler/{branch}/urunler/{productId}/secenek-gruplari/{groupId}', [MenuProductController::class, 'updateOptionGroup'])->middleware('throttle:admin-write')->name('products.option-groups.update');

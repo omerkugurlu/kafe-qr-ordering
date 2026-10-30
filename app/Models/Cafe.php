@@ -6,7 +6,6 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class Cafe extends Model
@@ -122,8 +121,12 @@ class Cafe extends Model
             return null;
         }
 
-        return Str::startsWith($path, ['http://', 'https://'])
-            ? $path
-            : Storage::disk('public')->url($path);
+        if (Str::startsWith($path, ['http://', 'https://'])) {
+            return $path;
+        }
+
+        return url('/media/'.collect(explode('/', ltrim($path, '/')))
+            ->map(fn (string $segment): string => rawurlencode($segment))
+            ->implode('/'));
     }
 }

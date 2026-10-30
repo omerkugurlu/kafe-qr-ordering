@@ -45,6 +45,58 @@ document.querySelectorAll('[data-loyalty-campaign-form]').forEach((form) => {
 
 const suggestionTemplate = document.querySelector('#menu-suggestion-options');
 const suggestionCategoryTemplate = document.querySelector('#menu-suggestion-category-options');
+
+document.querySelectorAll('[data-featured-picker]').forEach((picker) => {
+    const options = picker.querySelector('[data-featured-options]');
+    const count = picker.closest('section')?.querySelector('[data-featured-count]');
+    const message = picker.querySelector('[data-featured-message]');
+    const update = () => {
+        const selected = options?.querySelectorAll('input[type="checkbox"]:checked').length ?? 0;
+        if (count) count.textContent = `${selected} / 8 seçili`;
+    };
+    const filter = () => {
+        const categoryId = picker.querySelector('[data-featured-category]')?.value ?? 'all';
+        const query = picker.querySelector('[data-featured-search]')?.value.trim().toLocaleLowerCase('tr-TR') ?? '';
+        options?.querySelectorAll('[data-featured-option]').forEach((option) => {
+            const name = option.querySelector('[data-featured-name]')?.textContent?.trim().toLocaleLowerCase('tr-TR') ?? '';
+            option.hidden = (categoryId !== 'all' && option.dataset.categoryId !== categoryId) || !name.includes(query);
+        });
+    };
+
+    options?.addEventListener('change', (event) => {
+        const checkbox = event.target.closest('input[type="checkbox"]');
+        if (checkbox?.checked && options.querySelectorAll('input[type="checkbox"]:checked').length > 8) {
+            checkbox.checked = false;
+            if (message) message.textContent = 'En fazla 8 popüler ürün seçebilirsiniz.';
+        } else if (message) {
+            message.textContent = '';
+        }
+        update();
+    });
+    picker.querySelector('[data-featured-category]')?.addEventListener('change', filter);
+    picker.querySelector('[data-featured-search]')?.addEventListener('input', filter);
+    picker.querySelector('[data-featured-select-visible]')?.addEventListener('click', () => {
+        const checkboxes = [...(options?.querySelectorAll('[data-featured-option]:not([hidden]) input[type="checkbox"]') ?? [])];
+        let reachedLimit = false;
+        for (const checkbox of checkboxes) {
+            if (options.querySelectorAll('input[type="checkbox"]:checked').length >= 8) {
+                reachedLimit = true;
+                break;
+            }
+            checkbox.checked = true;
+        }
+        if (reachedLimit && message) message.textContent = 'En fazla 8 popüler ürün seçebilirsiniz.';
+        update();
+    });
+    picker.querySelector('[data-featured-clear]')?.addEventListener('click', () => {
+        options?.querySelectorAll('input[type="checkbox"]:checked').forEach((checkbox) => { checkbox.checked = false; });
+        if (message) message.textContent = '';
+        update();
+    });
+    filter();
+    update();
+});
+
 const setupSuggestionPicker = (picker, options) => {
     if (!picker || !options || picker.dataset.controlsReady === 'true') return;
 
@@ -52,6 +104,29 @@ const setupSuggestionPicker = (picker, options) => {
     const updateCount = () => {
         const selected = options.querySelectorAll('input[type="checkbox"]:checked').length;
         if (count) count.textContent = `${selected} seçili`;
+    };
+
+    const filterProducts = () => {
+        const categoryId = picker.querySelector('[data-suggestion-product-category]')?.value ?? '';
+        const query = picker.querySelector('[data-suggestion-search]')?.value.trim().toLocaleLowerCase('tr-TR') ?? '';
+        let visibleCount = 0;
+        options.querySelectorAll('[data-suggestion-option]').forEach((option) => {
+            const name = option.querySelector('[data-suggestion-product-name]')?.textContent?.trim().toLocaleLowerCase('tr-TR') ?? '';
+            const categoryMatches = categoryId === 'all' || (categoryId !== '' && option.dataset.suggestionCategoryId === categoryId);
+            option.hidden = !categoryMatches || !name.includes(query);
+            if (!option.hidden) visibleCount += 1;
+        });
+        let emptyState = options.querySelector('[data-suggestion-empty]');
+        if (!emptyState) {
+            emptyState = document.createElement('p');
+            emptyState.dataset.suggestionEmpty = '';
+            emptyState.className = 'col-span-full py-3 text-center text-sm font-medium text-muted';
+            options.append(emptyState);
+        }
+        emptyState.hidden = visibleCount > 0;
+        emptyState.textContent = categoryId === ''
+            ? 'Ürünleri görmek için önce kategori seçin.'
+            : 'Bu kategoride aramanızla eşleşen ürün bulunamadı.';
     };
 
     options.addEventListener('change', updateCount);
@@ -93,13 +168,13 @@ document.addEventListener('toggle', (event) => {
         });
         options.dataset.loaded = 'true';
 
-        picker.querySelector('[data-suggestion-search]')?.addEventListener('input', (searchEvent) => {
-            const query = searchEvent.currentTarget.value.trim().toLocaleLowerCase('tr-TR');
-            options.querySelectorAll('[data-suggestion-option]').forEach((option) => {
-                const name = option.querySelector('[data-suggestion-product-name]')?.textContent?.trim().toLocaleLowerCase('tr-TR') ?? '';
-                option.hidden = !name.includes(query);
-            });
-        });
+        const categorySelect = picker.querySelector('[data-suggestion-product-category]');
+        const firstSelectedProduct = options.querySelector('[data-suggestion-option] input[type="checkbox"]:checked')?.closest('[data-suggestion-option]');
+        if (categorySelect && firstSelectedProduct) categorySelect.value = firstSelectedProduct.dataset.suggestionCategoryId ?? '';
+
+        categorySelect?.addEventListener('change', filterProducts);
+        picker.querySelector('[data-suggestion-search]')?.addEventListener('input', filterProducts);
+        filterProducts();
     }
     setupSuggestionPicker(picker, options);
 

@@ -8,7 +8,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class MenuProduct extends Model
@@ -95,9 +94,13 @@ class MenuProduct extends Model
             return null;
         }
 
-        return Str::startsWith($this->image_path, ['http://', 'https://'])
-            ? $this->image_path
-            : Storage::disk('public')->url($this->image_path);
+        if (Str::startsWith($this->image_path, ['http://', 'https://'])) {
+            return $this->image_path;
+        }
+
+        return url('/media/'.collect(explode('/', ltrim($this->image_path, '/')))
+            ->map(fn (string $segment): string => rawurlencode($segment))
+            ->implode('/'));
     }
 
     /**

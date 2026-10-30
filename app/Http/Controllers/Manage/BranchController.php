@@ -54,7 +54,7 @@ class BranchController extends Controller
             ->where('cafe_id', $branch->cafe_id)
             ->where('branch_id', $menuBranchId)
             ->orderBy('name')
-            ->get(['id', 'name', 'suggestions', 'is_available']);
+            ->get(['id', 'name', 'category_id', 'suggestions', 'is_available', 'is_featured']);
         $availableProductCount = $suggestionPool->where('is_available', true)->count();
         $menuSources = Branch::query()->where('cafe_id', $branch->cafe_id)
             ->where('id', '!=', $branch->id)->where('is_active', true)->orderBy('name')->get(['id', 'name', 'uses_shared_menu']);

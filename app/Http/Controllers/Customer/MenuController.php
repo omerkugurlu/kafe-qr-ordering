@@ -90,11 +90,10 @@ class MenuController extends Controller
                 $productsSuggestedByCategory[$categoryId][] = $recommendedProduct->id;
             }
         }
-        $featuredIds = $allProducts->where('is_featured', true)->pluck('id')->take(8);
-
-        if ($featuredIds->isEmpty()) {
-            $featuredIds = $allProducts->take(6)->pluck('id');
-        }
+        $featuredIds = $allProducts->where('is_featured', true)
+            ->sortBy(fn (MenuProduct $product): array => [(int) $product->sort_order, (int) $product->id])
+            ->pluck('id')
+            ->take(8);
 
         $productData = $allProducts->map(function (MenuProduct $product) use ($branch, $productsById, $categoryNames, $productsSuggestedByCategory): array {
             $priceCents = Money::toCents($product->priceFor($branch));

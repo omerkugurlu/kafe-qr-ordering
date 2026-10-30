@@ -6,7 +6,6 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class MenuCategory extends Model
@@ -54,8 +53,12 @@ class MenuCategory extends Model
             return null;
         }
 
-        return Str::startsWith($this->image_path, ['http://', 'https://'])
-            ? $this->image_path
-            : Storage::disk('public')->url($this->image_path);
+        if (Str::startsWith($this->image_path, ['http://', 'https://'])) {
+            return $this->image_path;
+        }
+
+        return url('/media/'.collect(explode('/', ltrim($this->image_path, '/')))
+            ->map(fn (string $segment): string => rawurlencode($segment))
+            ->implode('/'));
     }
 }

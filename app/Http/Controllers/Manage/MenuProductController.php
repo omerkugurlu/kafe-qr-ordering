@@ -20,6 +20,50 @@ use Illuminate\Validation\ValidationException;
 
 class MenuProductController extends Controller
 {
+    public function updateFeatured(Request $request, Branch $branch): RedirectResponse
+    {
+        Gate::authorize('update', $branch);
+
+        $productBranchId = $branch->uses_shared_menu ? null : $branch->id;
+        $validated = $request->validate([
+            'featured_ids' => ['nullable', 'array', 'max:8'],
+            'featured_ids.*' => [
+                'integer',
+                Rule::exists('menu_products', 'id')->where(fn ($query) => $query
+                    ->where('cafe_id', $branch->cafe_id)
+                    ->where('branch_id', $productBranchId)
+                    ->where('is_available', true)),
+            ],
+        ]);
+        $featuredIds = collect($validated['featured_ids'] ?? [])->map(fn ($id): int => (int) $id)->unique()->values();
+
+        DB::transaction(function () use ($request, $branch, $productBranchId, $featuredIds): void {
+            $products = MenuProduct::query()
+                ->where('cafe_id', $branch->cafe_id)
+                ->where('branch_id', $productBranchId);
+            $products->update(['is_featured' => false]);
+
+            if ($featuredIds->isNotEmpty()) {
+                MenuProduct::query()
+                    ->where('cafe_id', $branch->cafe_id)
+                    ->where('branch_id', $productBranchId)
+                    ->whereIn('id', $featuredIds)
+                    ->update(['is_featured' => true]);
+            }
+
+            ActivityLog::query()->create([
+                'cafe_id' => $branch->cafe_id,
+                'branch_id' => $branch->id,
+                'user_id' => $request->user()->id,
+                'action' => 'menu.featured_products_updated',
+                'metadata' => ['product_ids' => $featuredIds->all()],
+                'ip_address' => $request->ip(),
+            ]);
+        });
+
+        return redirect()->route('manage.branches.show', $branch)->with('status', 'Popüler ürünler güncellendi.');
+    }
+
     public function storeOptionGroup(Request $request, Branch $branch, int $productId): RedirectResponse
     {
         Gate::authorize('update', $branch);
@@ -89,6 +133,7 @@ class MenuProductController extends Controller
         Gate::authorize('update', $branch);
         $validated = $this->validateProduct($request, $branch);
         $category = $this->category($branch, (int) $validated['category_id']);
+        $this->assertFeaturedLimit($branch, $request->boolean('is_featured'));
         $branchId = $branch->uses_shared_menu ? null : $branch->id;
         $product = $category->products()->create([
             'cafe_id' => $branch->cafe_id,
@@ -114,6 +159,7 @@ class MenuProductController extends Controller
         $product = $this->product($branch, $productId);
         $validated = $this->validateProduct($request, $branch, $product->id);
         $category = $this->category($branch, (int) $validated['category_id']);
+        $this->assertFeaturedLimit($branch, $request->boolean('is_featured'), $product->id);
         $product->fill([
             'category_id' => $category->id,
             'name' => $validated['name'],
@@ -312,6 +358,24 @@ class MenuProductController extends Controller
             'metadata' => ['name' => $product->name, 'price' => $product->price, 'is_available' => $product->is_available, ...$extra],
             'ip_address' => $request->ip(),
         ]);
+    }
+
+    private function assertFeaturedLimit(Branch $branch, bool $willBeFeatured, ?int $ignoreProductId = null): void
+    {
+        if (! $willBeFeatured) {
+            return;
+        }
+
+        $query = MenuProduct::query()
+            ->where('cafe_id', $branch->cafe_id)
+            ->where('branch_id', $branch->uses_shared_menu ? null : $branch->id)
+            ->where('is_featured', true)
+            ->where('is_available', true)
+            ->when($ignoreProductId !== null, fn ($products) => $products->where('id', '!=', $ignoreProductId));
+
+        if ($query->count() >= 8) {
+            throw ValidationException::withMessages(['is_featured' => 'Popüler bölümünde en fazla 8 ürün gösterebilirsiniz.']);
+        }
     }
 
     /** @return array<string, mixed> */
