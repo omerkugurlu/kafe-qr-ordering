@@ -571,24 +571,40 @@ class OrderController extends Controller
                 ->first();
 
             if ($session === null) {
-                return ['active_session' => false, 'eligible' => false, 'duplicate' => false];
+                return ['active_session' => false, 'eligible' => false, 'duplicate' => false, 'retry_after_seconds' => 0];
             }
 
             if ($validated['type'] === ServiceRequest::TYPE_BILL
                 && ! $session->orders()->whereIn('status', Order::BILL_REQUEST_ELIGIBLE_STATUSES)->exists()) {
-                return ['active_session' => true, 'eligible' => false, 'duplicate' => false];
+                return ['active_session' => true, 'eligible' => false, 'duplicate' => false, 'retry_after_seconds' => 0];
             }
 
-            $duplicate = ServiceRequest::query()
-                ->where('dining_table_id', $lockedTable->id)
-                ->where('table_session_id', $session->id)
-                ->where('type', $validated['type'])
-                ->where('status', ServiceRequest::STATUS_OPEN)
-                ->where('created_at', '>=', now()->subMinutes(2))
-                ->exists();
+            $recentWaiterRequest = null;
+            $retryAfterSeconds = 0;
+            if ($validated['type'] === ServiceRequest::TYPE_WAITER) {
+                $recentWaiterRequest = ServiceRequest::query()
+                    ->where('dining_table_id', $lockedTable->id)
+                    ->where('table_session_id', $session->id)
+                    ->where('type', ServiceRequest::TYPE_WAITER)
+                    ->latest('created_at')
+                    ->first();
+                if ($recentWaiterRequest !== null) {
+                    $retryAfterSeconds = max(0, $recentWaiterRequest->created_at->copy()->addMinute()->getTimestamp() - now()->getTimestamp());
+                }
+            }
+
+            $duplicate = $validated['type'] === ServiceRequest::TYPE_WAITER
+                ? $retryAfterSeconds > 0
+                : ServiceRequest::query()
+                    ->where('dining_table_id', $lockedTable->id)
+                    ->where('table_session_id', $session->id)
+                    ->where('type', $validated['type'])
+                    ->where('status', ServiceRequest::STATUS_OPEN)
+                    ->where('created_at', '>=', now()->subMinutes(2))
+                    ->exists();
 
             if ($duplicate) {
-                return ['active_session' => true, 'eligible' => true, 'duplicate' => true];
+                return ['active_session' => true, 'eligible' => true, 'duplicate' => true, 'retry_after_seconds' => $retryAfterSeconds];
             }
 
             ServiceRequest::query()->create([
@@ -600,7 +616,12 @@ class OrderController extends Controller
                 'note' => $validated['note'] ?? null,
             ]);
 
-            return ['active_session' => true, 'eligible' => true, 'duplicate' => false];
+            return [
+                'active_session' => true,
+                'eligible' => true,
+                'duplicate' => false,
+                'retry_after_seconds' => $validated['type'] === ServiceRequest::TYPE_WAITER ? 60 : 0,
+            ];
         });
 
         if (! $result['active_session']) {
@@ -620,6 +641,15 @@ class OrderController extends Controller
         }
 
         if ($result['duplicate']) {
+            if ($validated['type'] === ServiceRequest::TYPE_WAITER) {
+                return response()->json([
+                    'ok' => true,
+                    'duplicate' => true,
+                    'retry_after_seconds' => $result['retry_after_seconds'],
+                    'message' => 'Garson çağrınız iletildi. '.$result['retry_after_seconds'].' saniye sonra tekrar çağırabilirsiniz.',
+                ]);
+            }
+
             return response()->json([
                 'ok' => true,
                 'duplicate' => true,
@@ -632,6 +662,7 @@ class OrderController extends Controller
         return response()->json([
             'ok' => true,
             'duplicate' => false,
+            'retry_after_seconds' => $result['retry_after_seconds'],
             'message' => $validated['type'] === ServiceRequest::TYPE_BILL
                 ? 'Hesap isteğiniz garsona iletildi.'
                 : 'Garson çağrınız iletildi. Kısa süre içinde masanıza gelecek.',

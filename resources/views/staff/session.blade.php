@@ -273,115 +273,133 @@
         </div>
 
         <div class="space-y-5">
-            <section class="card overflow-hidden" data-split-bill data-due-cents="{{ $dueCents }}">
-                <div class="relative overflow-hidden bg-forest p-5 text-white">
-                    <div class="pointer-events-none absolute -right-10 -top-12 size-32 rounded-full border-[22px] border-white/5"></div>
-                    <div class="relative flex items-start justify-between gap-3">
+            <section class="card overflow-hidden" data-payment-picker>
+                <div class="bg-forest px-5 py-4 text-white">
+                    <p class="text-[10px] font-bold uppercase tracking-[.16em] text-amber">Ödeme al</p>
+                    <div class="mt-1 flex items-end justify-between gap-3">
                         <div>
-                            <p class="text-[10px] font-bold uppercase tracking-[.18em] text-amber">Hesap böl</p>
-                            <p class="mt-1 text-xs font-medium text-white/60">Kalan tutar</p>
-                            <p class="mt-1 font-display text-3xl font-semibold">₺{{ number_format($dueCents / 100, 2, ',', '.') }}</p>
+                            <h2 class="font-display text-2xl font-semibold">Ürünleri seç</h2>
+                            <p class="mt-0.5 text-xs text-white/70">Bu kişinin ödeyeceği ürün ve adetleri işaretle.</p>
                         </div>
-                        <span class="grid size-11 place-items-center rounded-full bg-white/10 text-amber ring-1 ring-white/15">
-                            <x-ui.icon name="users" class="size-5" />
-                        </span>
+                        <p class="shrink-0 text-right">
+                            <span class="block text-[10px] font-semibold uppercase tracking-wider text-white/60">Kalan</span>
+                            <span class="font-display text-lg font-semibold">{{ \App\Services\Money::format($dueCents) }}</span>
+                        </p>
                     </div>
                 </div>
 
-                <div class="space-y-4 p-5">
-                    <div class="flex items-center justify-between gap-3">
-                        <div>
-                            <p class="text-sm font-bold text-ink">Kaç kişi?</p>
-                            <p class="text-[11px] font-medium text-muted">Tutarı kişi sayısına bölün.</p>
-                        </div>
-                        <div class="flex items-center gap-1 rounded-full border border-line bg-cream p-1">
-                            <button type="button" data-split-step="-1" class="grid size-8 place-items-center rounded-full bg-paper text-ink shadow-sm transition hover:bg-sage" aria-label="Kişi sayısını azalt">−</button>
-                            <input type="number" min="1" max="20" value="2" inputmode="numeric" data-split-people class="w-10 border-0 bg-transparent p-0 text-center text-sm font-bold text-ink focus:ring-0" aria-label="Kişi sayısı">
-                            <button type="button" data-split-step="1" class="grid size-8 place-items-center rounded-full bg-paper text-ink shadow-sm transition hover:bg-sage" aria-label="Kişi sayısını artır">+</button>
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-2">
-                        <div class="rounded-2xl bg-cream px-3 py-2.5">
-                            <p class="text-[10px] font-bold uppercase tracking-[.12em] text-muted">Kişi başı</p>
-                            <p data-split-share class="mt-0.5 text-lg font-bold text-ink">₺0,00</p>
-                        </div>
-                        <div class="rounded-2xl bg-amber-soft px-3 py-2.5">
-                            <p class="text-[10px] font-bold uppercase tracking-[.12em] text-[#8a5a14]/70">Son kişi</p>
-                            <p data-split-last class="mt-0.5 text-lg font-bold text-[#8a5a14]">₺0,00</p>
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-2">
-                        <button type="button" data-split-apply="share" @disabled($dueCents <= 0) class="btn btn-primary btn-sm justify-center">Kişi başı</button>
-                        <button type="button" data-split-apply="last" @disabled($dueCents <= 0) class="btn btn-secondary btn-sm justify-center">Son kişi</button>
-                        <button type="button" data-split-apply="half" @disabled($dueCents <= 0) class="btn btn-secondary btn-sm justify-center">Yarısı</button>
-                        <button type="button" data-split-apply="full" @disabled($dueCents <= 0) class="btn btn-secondary btn-sm justify-center">Kalanın tamamı</button>
-                    </div>
-
-                    <p data-split-status class="text-center text-[11px] font-semibold text-success" aria-live="polite"></p>
-                </div>
-            </section>
-
-            <section class="card p-5">
-                <div class="flex items-center justify-between gap-2">
-                    <div>
-                        <h2 class="font-display text-2xl font-semibold text-ink">Ödeme kaydet</h2>
-                        <p class="mt-0.5 text-xs font-medium text-muted">Kart ödemesini fiziksel POS cihazında alın.</p>
-                    </div>
-                    <span class="grid size-10 place-items-center rounded-full bg-success-soft text-success"><x-ui.icon name="banknote" class="size-5" /></span>
-                </div>
-
-                <form method="post" action="{{ route('staff.sessions.payments.store', $session->id) }}" class="mt-4 space-y-4">
+                <form method="post" action="{{ route('staff.sessions.payments.store', $session->id) }}" class="space-y-4 p-4 sm:p-5">
                     @csrf
-                    <label class="block">
-                        <span class="label">Tutar</span>
-                        <input type="number" name="amount" step="0.01" min="0.01" max="1000000" required data-payment-amount class="input" value="{{ $dueCents > 0 ? \App\Services\Money::toDecimal($dueCents) : '' }}" placeholder="{{ number_format($dueCents / 100, 2, ',', '.') }}">
-                    </label>
-                    <label class="block">
-                        <span class="label">Ödeme yöntemi</span>
-                        <select name="method" required class="input">
-                            <option value="cash">Nakit</option>
-                            <option value="card">Kart (fiziksel POS)</option>
-                        </select>
-                    </label>
-                    <label class="block">
-                        <span class="label">Ödeme dağılımı</span>
-                        <select name="order_item_id" class="input" data-payment-allocation>
-                            <option value="" data-due-cents="{{ $dueCents }}">Adisyon geneli</option>
-                            @foreach ($session->orders->whereIn('status', ['accepted', 'ready', 'served']) as $order)
-                                @foreach ($order->items as $item)
-                                    @if (($itemDueCents[$item->id] ?? 0) > 0)
-                                        <option value="{{ $item->id }}" data-due-cents="{{ $itemDueCents[$item->id] }}">#{{ $order->order_number }} · {{ $item->quantity }}× {{ $item->name_snapshot }} · Kalan {{ \App\Services\Money::format($itemDueCents[$item->id]) }}</option>
-                                    @endif
-                                @endforeach
+                    <fieldset class="space-y-2">
+                        <legend class="label">Ödenecek ürünler</legend>
+                        @php($payableOrders = $session->orders->whereIn('status', ['accepted', 'ready', 'served']))
+                        @php($hasPayableItem = collect($itemDueCents)->contains(fn ($balance) => $balance > 0))
+                        @if (! $hasPayableItem)
+                            <p class="rounded-2xl border border-dashed border-line px-4 py-6 text-center text-sm text-muted">Ödeme alınabilecek ürün yok.</p>
+                        @else
+                        <div class="space-y-3">
+                            <label class="block">
+                                <span class="sr-only">Ürün ara</span>
+                                <input type="search" data-payment-search autocomplete="off" class="input" placeholder="Ürün adıyla ara…">
+                            </label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <button type="button" data-payment-select-all class="btn-secondary w-full px-3 text-xs">Tüm kalan ürünler</button>
+                                <button type="button" data-payment-clear class="btn-secondary w-full px-3 text-xs">Seçimi temizle</button>
+                            </div>
+                        </div>
+                        @foreach ($payableOrders as $order)
+                            @foreach ($order->items as $item)
+                                @php
+                                    $itemBalanceCents = $itemDueCents[$item->id] ?? 0;
+                                    $unitCents = \App\Services\Money::toCents((string) $item->unit_price);
+                                    $maxPayableQuantity = $unitCents > 0
+                                        ? min($item->quantity, intdiv($itemBalanceCents + $unitCents - 1, $unitCents))
+                                        : 0;
+                                @endphp
+                                @if ($maxPayableQuantity > 0)
+                                    <label class="flex cursor-pointer items-center gap-3 rounded-2xl border border-line bg-paper px-3 py-2.5 transition has-[:checked]:border-forest has-[:checked]:bg-sage/30" data-payment-item data-due-cents="{{ $itemBalanceCents }}" data-unit-cents="{{ $unitCents }}" data-max-quantity="{{ $maxPayableQuantity }}">
+                                        <input type="checkbox" data-payment-item-check aria-label="{{ $item->name_snapshot }} seç" class="size-5 shrink-0 accent-forest">
+                                        <div class="min-w-0 flex-1">
+                                            <p data-payment-item-name class="truncate text-sm font-bold text-ink">{{ $item->name_snapshot }}</p>
+                                            <p class="text-[11px] font-medium text-muted">#{{ $order->order_number }} · {{ \App\Services\Money::format($unitCents) }} / adet · {{ \App\Services\Money::format($itemBalanceCents) }} kaldı</p>
+                                        </div>
+                                        <span class="flex shrink-0 items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-muted">
+                                            Adet
+                                            <input type="number" name="items[{{ $item->id }}]" value="1" min="1" max="{{ $maxPayableQuantity }}" inputmode="numeric" data-payment-item-quantity disabled aria-label="{{ $item->name_snapshot }} ödeme adedi" class="input w-[4.5rem] px-2 py-2 text-center text-sm font-bold disabled:opacity-40">
+                                        </span>
+                                    </label>
+                                @endif
                             @endforeach
-                        </select>
+                        @endforeach
+                        <p data-payment-empty-results hidden class="rounded-2xl border border-dashed border-line px-4 py-5 text-center text-sm text-muted">Bu aramayla eşleşen ürün yok.</p>
+                        @endif
+                    </fieldset>
+
+                    <div class="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Ödeme yöntemi">
+                        <label class="flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-line bg-paper px-3 py-2 text-sm font-bold transition has-[:checked]:border-forest has-[:checked]:bg-sage/40">
+                            <input type="radio" name="method" value="cash" required checked class="size-4 accent-forest">
+                            <x-ui.icon name="banknote" class="size-4" /> Nakit
+                        </label>
+                        <label class="flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-line bg-paper px-3 py-2 text-sm font-bold transition has-[:checked]:border-forest has-[:checked]:bg-sage/40">
+                            <input type="radio" name="method" value="card" required class="size-4 accent-forest">
+                            <x-ui.icon name="card" class="size-4" /> Kart
+                        </label>
+                    </div>
+                    <p class="-mt-2 text-[11px] text-muted">Kart ödemesini fiziksel POS cihazından aldıktan sonra kaydet.</p>
+
+                    <label class="block" data-cash-received-wrap>
+                        <span class="label">Alınan nakit</span>
+                        <input type="number" name="cash_received" min="0.01" step="0.01" inputmode="decimal" data-cash-received class="input" placeholder="Müşterinin verdiği tutar">
                     </label>
+
                     <label class="block">
-                        <span class="label">Kişi / not <span class="font-medium normal-case tracking-normal text-muted">(isteğe bağlı)</span></span>
-                        <input name="person_label" maxlength="80" data-payment-person class="input" placeholder="Örn. Ayşe / 2 kişi">
+                        <span class="label">Ödeyen kişi <span class="font-medium normal-case tracking-normal text-muted">(isteğe bağlı)</span></span>
+                        <input name="person_label" maxlength="80" class="input" placeholder="Örn. Ayşe">
                     </label>
-                    <button @disabled($session->status !== 'open' || $dueCents <= 0) class="btn btn-primary w-full" data-submit-once>
+
+                    <div class="rounded-2xl bg-cream px-4 py-3" aria-live="polite">
+                        <div class="flex items-center justify-between gap-3">
+                            <span class="text-xs font-semibold text-muted"><span data-payment-selected-count>0</span> adet seçildi</span>
+                            <strong data-payment-total class="font-display text-xl font-semibold text-ink">₺0,00</strong>
+                        </div>
+                        <p data-payment-items-summary class="mt-1 truncate text-[11px] font-medium text-muted">Ödenecek ürünleri seç.</p>
+                        <p data-payment-change class="mt-1 text-right text-xs font-semibold text-success">Para üstü: ₺0,00</p>
+                    </div>
+
+                    <button type="submit" @disabled($session->status !== 'open' || $dueCents <= 0 || $payableOrders->isEmpty()) class="btn-primary w-full" data-payment-submit data-submit-once>
                         <x-ui.icon name="check" class="size-4" />
-                        Ödemeyi kaydet
+                        Seçilen ürünlerin ödemesini kaydet
                     </button>
                 </form>
             </section>
 
             <section class="card p-5">
-                <h2 class="font-display text-xl font-semibold text-ink">Ödeme geçmişi</h2>
+                <div class="flex items-center justify-between gap-2">
+                    <div>
+                        <h2 class="font-display text-xl font-semibold text-ink">Ödeme geçmişi</h2>
+                        <p class="mt-0.5 text-xs font-medium text-muted">Kaydedilen tahsilatlar</p>
+                    </div>
+                </div>
                 <div class="mt-3 space-y-2">
                     @forelse ($session->payments as $payment)
                         <div class="rounded-2xl border border-line bg-cream/40 p-3 text-sm {{ $payment->voided_at ? 'opacity-60' : '' }}">
                             <div class="flex items-center justify-between gap-3">
                                 <span class="flex items-center gap-2 font-semibold text-ink">
                                     <x-ui.icon :name="$payment->method === 'cash' ? 'banknote' : 'card'" class="size-4 text-muted" />
-                                    {{ $payment->method === 'cash' ? 'Nakit' : 'Kart' }}@if ($payment->person_label) · {{ $payment->person_label }}@endif
+                                    {{ $payment->method === 'cash' ? 'Nakit' : 'Kart' }}
+                                    @if ($payment->allocations->isNotEmpty())
+                                        · {{ $payment->allocations->map(fn ($allocation) => $allocation->quantity.'× '.($allocation->orderItem?->name_snapshot ?? 'Ürün'))->implode(', ') }}
+                                    @elseif ($payment->orderItem)
+                                        · {{ $payment->orderItem->name_snapshot }}
+                                    @endif
+                                    @if ($payment->person_label) · {{ $payment->person_label }}@endif
                                 </span>
                                 <span class="font-bold text-ink">₺{{ number_format((float) $payment->amount, 2, ',', '.') }}</span>
                             </div>
                             <p class="mt-1 text-[11px] font-medium text-muted">{{ $payment->recorded_at?->timezone('Europe/Istanbul')->format('H:i') }} · {{ $payment->recorder?->name ?? 'Personel' }}</p>
+                            @if ($payment->method === 'cash' && $payment->cash_received !== null)
+                                <p class="mt-1 text-[11px] font-semibold text-success">Verilen {{ \App\Services\Money::formatDecimal($payment->cash_received) }} · Para üstü {{ \App\Services\Money::formatDecimal($payment->change_amount) }}</p>
+                            @endif
                             @if ($payment->voided_at)
                                 <p class="mt-1 text-xs font-semibold text-danger">İptal edildi · {{ $payment->void_reason }}</p>
                             @elseif (auth()->user()?->role === \App\Models\User::ROLE_CAFE_OWNER)

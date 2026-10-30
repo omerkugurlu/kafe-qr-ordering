@@ -99,9 +99,9 @@
                         <div class="min-w-0"><p class="text-[9px] font-bold uppercase tracking-[.14em] text-muted">{{ __('customer.my_account') }}</p><p class="truncate text-xs font-bold text-ink">{{ __('customer.points_and_rewards') }}</p></div>
                     </a>
                 @endif
-                <button type="button" data-service-request="waiter" data-service-url="{{ route('customer.call', $token) }}" class="flex items-center gap-2 rounded-2xl bg-cream px-3 py-2.5 text-left transition hover:bg-sage/60">
+                <button type="button" data-service-request="waiter" data-service-url="{{ route('customer.call', $token) }}" class="flex items-center gap-2 rounded-2xl bg-cream px-3 py-2.5 text-left transition hover:bg-sage/60 disabled:cursor-not-allowed disabled:opacity-60">
                     <span class="grid size-8 shrink-0 place-items-center rounded-full bg-paper text-forest"><x-ui.icon name="bell" class="size-4" /></span>
-                    <div class="min-w-0"><p class="text-[9px] font-bold uppercase tracking-[.14em] text-muted">{{ __('customer.service') }}</p><p class="truncate text-xs font-bold text-ink">{{ __('customer.call_waiter') }}</p></div>
+                    <div class="min-w-0"><p class="text-[9px] font-bold uppercase tracking-[.14em] text-muted">{{ __('customer.service') }}</p><p class="truncate text-xs font-bold text-ink" data-waiter-request-label>{{ __('customer.call_waiter') }}</p></div>
                 </button>
                 <div data-bill-request-group class="min-w-0">
                     <button type="button" data-service-request="bill" data-bill-request data-request-sent-label="{{ __('customer.request_sent') }}" data-service-url="{{ route('customer.call', $token) }}" @disabled(! $canRequestBill) aria-disabled="{{ $canRequestBill ? 'false' : 'true' }}" @unless ($canRequestBill) aria-describedby="bill-request-help" @endunless class="flex w-full items-center gap-2 rounded-2xl bg-cream px-3 py-2.5 text-left transition hover:bg-sage/60 disabled:cursor-not-allowed disabled:opacity-60">

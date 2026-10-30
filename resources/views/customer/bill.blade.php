@@ -156,7 +156,7 @@
                                 <button type="button" class="btn-primary w-full disabled:cursor-not-allowed disabled:opacity-60" data-service-request="bill" data-bill-request data-request-sent-label="{{ __('customer.request_sent') }}" data-service-url="{{ route('customer.call', $token) }}" @disabled(! $canRequestBill) aria-disabled="{{ $canRequestBill ? 'false' : 'true' }}" @unless ($canRequestBill) aria-describedby="bill-request-help" @endunless><span data-bill-request-label>{{ __('customer.request_bill') }}</span></button>
                                 <p id="bill-request-help" data-bill-request-hint @if ($canRequestBill) hidden @endif class="mt-1 text-[10px] leading-relaxed text-muted">{{ __('customer.bill_request_after_order_acceptance') }}</p>
                             </div>
-                            <button type="button" class="btn-secondary w-full" data-service-request="waiter" data-service-url="{{ route('customer.call', $token) }}">{{ __('customer.call_waiter') }}</button>
+                            <button type="button" class="btn-secondary w-full" data-service-request="waiter" data-service-url="{{ route('customer.call', $token) }}"><span data-waiter-request-label>{{ __('customer.call_waiter') }}</span></button>
                         @endif
                         <a href="{{ route('customer.menu', $token) }}" class="btn-secondary w-full">{{ $isOpen ? __('customer.menu') : __('customer.menu_again') }}</a>
                     </div>

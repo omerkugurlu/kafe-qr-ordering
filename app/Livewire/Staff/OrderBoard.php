@@ -61,8 +61,18 @@ class OrderBoard extends Component
                 throw ValidationException::withMessages(['order' => 'Bu sipariş artık iptal edilemez.']);
             }
 
-            $hasItemPayment = Payment::query()->whereIn('order_item_id', $order->items()->select('id'))->whereNull('voided_at')->exists();
-            $hasUnallocatedPayment = $session->payments()->whereNull('order_item_id')->whereNull('voided_at')->exists();
+            $hasItemPayment = Payment::query()
+                ->whereNull('voided_at')
+                ->where(function ($query) use ($order): void {
+                    $query->whereIn('order_item_id', $order->items()->select('id'))
+                        ->orWhereHas('allocations', fn ($allocations) => $allocations->whereIn('order_item_id', $order->items()->select('id')));
+                })
+                ->exists();
+            $hasUnallocatedPayment = $session->payments()
+                ->whereNull('order_item_id')
+                ->whereNull('voided_at')
+                ->whereDoesntHave('allocations')
+                ->exists();
             if ($hasItemPayment || $hasUnallocatedPayment) {
                 throw ValidationException::withMessages(['order' => 'Bu sipariş için ödeme kaydı var. Önce ilgili ödemeyi iptal edin.']);
             }

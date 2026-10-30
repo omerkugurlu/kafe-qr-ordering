@@ -84,7 +84,14 @@ class TableSessionController extends Controller
 
     public function show(int $sessionId, PaymentAllocationService $paymentAllocation): View
     {
-        $session = TableSession::query()->with(['branch.cafe', 'diningTable', 'orders.items.options', 'payments.recorder'])->findOrFail($sessionId);
+        $session = TableSession::query()->with([
+            'branch.cafe',
+            'diningTable',
+            'orders.items.options',
+            'payments.recorder',
+            'payments.orderItem',
+            'payments.allocations.orderItem',
+        ])->findOrFail($sessionId);
         Gate::authorize('view', $session->branch);
 
         $dueCents = $session->dueAmountCents();

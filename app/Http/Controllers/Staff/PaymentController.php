@@ -5,10 +5,12 @@ namespace App\Http\Controllers\Staff;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\Payment;
 use App\Models\TableSession;
 use App\Models\User;
 use App\Services\LoyaltyService;
+use App\Services\Money;
 use App\Services\OrderSettlementService;
 use App\Services\PaymentAllocationService;
 use App\Services\ServiceRequestLifecycleService;
@@ -25,46 +27,97 @@ class PaymentController extends Controller
     {
         $validated = $request->validate([
             'method' => ['required', Rule::in([Payment::METHOD_CASH, Payment::METHOD_CARD])],
-            'amount' => ['required', 'numeric', 'gt:0', 'max:1000000', 'decimal:0,2'],
+            'items' => ['required', 'array', 'min:1', 'max:100'],
+            'items.*' => ['required', 'integer', 'min:1', 'max:65535'],
+            'cash_received' => ['required_if:method,cash', 'nullable', 'numeric', 'gt:0', 'max:1000000', 'decimal:0,2'],
             'person_label' => ['nullable', 'string', 'max:80'],
-            'order_item_id' => ['nullable', 'integer'],
         ]);
         $session = TableSession::query()->with('branch')->findOrFail($sessionId);
         Gate::authorize('view', $session->branch);
-        $amountCents = self::moneyToCents((string) $validated['amount']);
-
         $closed = false;
+        $amountCents = 0;
+        $changeCents = 0;
 
-        DB::transaction(function () use ($session, $request, $validated, $amountCents, $settlement, $serviceRequests, $paymentAllocation, &$closed): void {
+        DB::transaction(function () use ($session, $request, $validated, $settlement, $serviceRequests, $paymentAllocation, &$closed, &$amountCents, &$changeCents): void {
             $locked = TableSession::query()->with('branch')->whereKey($session->id)->lockForUpdate()->firstOrFail();
             abort_unless($locked->status === TableSession::STATUS_OPEN, 409);
             $dueCents = $locked->dueAmountCents();
 
-            if ($dueCents === 0 || $amountCents > $dueCents) {
-                throw ValidationException::withMessages(['amount' => 'Tahsilat tutarı kalan adisyon tutarını aşamaz.']);
+            if ($dueCents === 0) {
+                throw ValidationException::withMessages(['items' => 'Bu adisyonda tahsil edilecek tutar kalmadı.']);
             }
 
-            $orderItemId = $validated['order_item_id'] ?? null;
-            if ($orderItemId !== null) {
-                $item = $locked->orders()->whereIn('status', [Order::STATUS_ACCEPTED, Order::STATUS_READY, Order::STATUS_SERVED])
-                    ->whereHas('items', fn ($query) => $query->whereKey($orderItemId))
-                    ->with(['items' => fn ($query) => $query->whereKey($orderItemId)])
-                    ->firstOrFail()->items->first();
-                $itemDueCents = $paymentAllocation->itemBalances($locked)[$orderItemId] ?? 0;
+            $allocations = collect($validated['items'])
+                ->mapWithKeys(fn ($quantity, $id): array => [(int) $id => (int) $quantity])
+                ->all();
+            $items = OrderItem::query()
+                ->whereIn('id', array_keys($allocations))
+                ->whereHas('order', fn ($query) => $query
+                    ->where('table_session_id', $locked->id)
+                    ->whereIn('status', [Order::STATUS_ACCEPTED, Order::STATUS_READY, Order::STATUS_SERVED]))
+                ->get()
+                ->keyBy('id');
 
-                if ($amountCents > $itemDueCents) {
-                    throw ValidationException::withMessages(['amount' => 'Bu kalem için kalan tutardan fazla ödeme kaydedilemez.']);
+            if ($items->count() !== count($allocations)) {
+                throw ValidationException::withMessages(['items' => 'Seçilen ürünlerden biri bu adisyonda bulunmuyor. Sayfayı yenileyip tekrar deneyin.']);
+            }
+
+            $itemBalances = $paymentAllocation->itemBalances($locked);
+            $paymentLines = [];
+            foreach ($allocations as $itemId => $quantity) {
+                $item = $items->get($itemId);
+                $itemDueCents = $itemBalances[$itemId] ?? 0;
+                $unitCents = Money::toCents((string) $item->unit_price);
+                $availableQuantity = $unitCents > 0
+                    ? min($item->quantity, intdiv($itemDueCents + $unitCents - 1, $unitCents))
+                    : 0;
+
+                if ($quantity > $availableQuantity) {
+                    throw ValidationException::withMessages(['items' => 'Seçilen ürün adedi kalan adetten fazla. Sayfayı yenileyip tekrar deneyin.']);
                 }
+
+                $lineCents = min($itemDueCents, $unitCents * $quantity);
+                if ($lineCents <= 0) {
+                    throw ValidationException::withMessages(['items' => 'Ödenecek tutarı olan ürünleri seçin.']);
+                }
+
+                $paymentLines[] = ['item' => $item, 'quantity' => $quantity, 'amount_cents' => $lineCents];
+                $amountCents += $lineCents;
             }
 
+            if ($amountCents <= 0 || $amountCents > $dueCents) {
+                throw ValidationException::withMessages(['items' => 'Seçilen ürünlerin tutarı kalan adisyon tutarını aşamaz.']);
+            }
+            if ($amountCents > 100_000_000) {
+                throw ValidationException::withMessages(['items' => 'Tek tahsilat 1.000.000 TL’yi geçemez.']);
+            }
+
+            if ($validated['method'] === Payment::METHOD_CASH) {
+                $cashReceivedCents = Money::toCents((string) $validated['cash_received']);
+                if ($cashReceivedCents < $amountCents) {
+                    throw ValidationException::withMessages(['cash_received' => 'Alınan nakit, seçilen ürünlerin toplamından az olamaz.']);
+                }
+                $changeCents = $cashReceivedCents - $amountCents;
+            } else {
+                $cashReceivedCents = null;
+            }
+
+            $recordedAt = now();
             $payment = $locked->payments()->create([
                 'recorded_by' => $request->user()->id,
-                'order_item_id' => $orderItemId,
+                'order_item_id' => null,
                 'method' => $validated['method'],
-                'amount' => intdiv($amountCents, 100).'.'.str_pad((string) ($amountCents % 100), 2, '0', STR_PAD_LEFT),
+                'amount' => Money::toDecimal($amountCents),
+                'cash_received' => $cashReceivedCents !== null ? Money::toDecimal($cashReceivedCents) : null,
+                'change_amount' => Money::toDecimal($changeCents),
                 'person_label' => $validated['person_label'] ?? null,
-                'recorded_at' => now(),
+                'recorded_at' => $recordedAt,
             ]);
+            $payment->allocations()->createMany(collect($paymentLines)->map(fn (array $line): array => [
+                'order_item_id' => $line['item']->id,
+                'quantity' => $line['quantity'],
+                'amount' => Money::toDecimal($line['amount_cents']),
+            ])->all());
 
             $settled = $settlement->settleServedOrders($locked);
 
@@ -99,16 +152,41 @@ class PaymentController extends Controller
                 'action' => 'payment.recorded',
                 'subject_type' => Payment::class,
                 'subject_id' => $payment->id,
-                'metadata' => ['method' => $payment->method, 'amount' => $payment->amount, 'person_label' => $payment->person_label],
+                'metadata' => [
+                    'method' => $payment->method,
+                    'amount' => $payment->amount,
+                    'person_label' => $payment->person_label,
+                    'cash_received' => $payment->cash_received,
+                    'change_given' => $payment->change_amount,
+                    'allocations' => collect($paymentLines)->map(fn (array $line): array => [
+                        'order_item_id' => $line['item']->id,
+                        'name' => $line['item']->name_snapshot,
+                        'quantity' => $line['quantity'],
+                        'amount' => Money::toDecimal($line['amount_cents']),
+                    ])->all(),
+                ],
                 'ip_address' => $request->ip(),
             ]);
         });
 
         if ($closed) {
-            return $this->redirectAfterClosure($request, $session)->with('status', 'Ödeme kaydedildi ve adisyon kapatıldı.');
+            $message = Money::format($amountCents).' ödeme alındı';
+            if ($validated['method'] === Payment::METHOD_CASH) {
+                $message .= '. Para üstü: '.Money::format($changeCents);
+            }
+
+            return $this->redirectAfterClosure($request, $session)->with('status', $message.' Adisyon kapatıldı.');
         }
 
-        return redirect()->route('staff.sessions.show', $sessionId)->with('status', 'Ödeme kaydedildi. Kart ödemesi fiziksel POS üzerinden alınmış olmalıdır.');
+        $message = Money::format($amountCents).' ödeme kaydedildi.';
+        if ($validated['method'] === Payment::METHOD_CASH) {
+            $message .= ' Para üstü: '.Money::format($changeCents).'.';
+        } else {
+            $message .= ' Kart ödemesi fiziksel POS üzerinden alınmış olmalıdır.';
+        }
+        $message .= ' Kalan ürünler sonraki ödeme için açık.';
+
+        return redirect()->route('staff.sessions.show', $sessionId)->with('status', $message);
     }
 
     private function redirectAfterClosure(Request $request, TableSession $session): RedirectResponse
@@ -130,7 +208,11 @@ class PaymentController extends Controller
         DB::transaction(function () use ($session, $paymentId, $request, $validated, $loyalty): void {
             $locked = TableSession::query()->whereKey($session->id)->lockForUpdate()->firstOrFail();
             $wasClosed = $locked->status === TableSession::STATUS_CLOSED;
-            $payment = $locked->payments()->whereKey($paymentId)->lockForUpdate()->firstOrFail();
+            $payment = $locked->payments()
+                ->with(['orderItem.order', 'allocations.orderItem.order'])
+                ->whereKey($paymentId)
+                ->lockForUpdate()
+                ->firstOrFail();
 
             abort_unless(in_array($locked->status, [TableSession::STATUS_OPEN, TableSession::STATUS_CLOSED], true), 409);
 
@@ -139,8 +221,11 @@ class PaymentController extends Controller
             }
 
             if ($locked->status === TableSession::STATUS_OPEN && $locked->orders()->where('status', Order::STATUS_PAID)->exists()) {
-                $relatedOrder = $payment->orderItem?->order;
-                if ($relatedOrder?->status === Order::STATUS_PAID || $payment->order_item_id === null) {
+                $touchesPaidOrder = $payment->orderItem?->order?->status === Order::STATUS_PAID
+                    || $payment->allocations->contains(fn ($allocation): bool => $allocation->orderItem?->order?->status === Order::STATUS_PAID);
+                $isLegacyUnallocatedPayment = $payment->order_item_id === null && $payment->allocations->isEmpty();
+
+                if ($touchesPaidOrder || $isLegacyUnallocatedPayment) {
                     throw ValidationException::withMessages(['payment' => 'Ödeme kapanmış bir siparişe ait veya adisyon geneline kaydedilmiş. Bu kaydı buradan iptal edemezsiniz.']);
                 }
             }
@@ -192,6 +277,13 @@ class PaymentController extends Controller
                 'metadata' => [
                     'reason' => $payment->void_reason,
                     'amount' => $payment->amount,
+                    'cash_received' => $payment->cash_received,
+                    'change_given' => $payment->change_amount,
+                    'allocations' => $payment->allocations->map(fn ($allocation): array => [
+                        'order_item_id' => $allocation->order_item_id,
+                        'quantity' => $allocation->quantity,
+                        'amount' => $allocation->amount,
+                    ])->all(),
                     'session_reopened' => $wasClosed && $locked->status === TableSession::STATUS_OPEN,
                 ],
                 'ip_address' => $request->ip(),
@@ -201,10 +293,4 @@ class PaymentController extends Controller
         return redirect()->route('staff.sessions.show', $sessionId)->with('status', 'Ödeme kaydı iptal edildi ve geçmişte tutuldu.');
     }
 
-    private static function moneyToCents(string $amount): int
-    {
-        [$whole, $fraction] = array_pad(explode('.', $amount, 2), 2, '0');
-
-        return ((int) $whole * 100) + (int) str_pad(substr($fraction, 0, 2), 2, '0');
-    }
 }

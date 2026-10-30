@@ -48,4 +48,9 @@ class OrderItem extends Model
     {
         return $this->hasMany(OrderItemOption::class)->orderBy('id');
     }
+
+    public function paymentAllocations(): HasMany
+    {
+        return $this->hasMany(PaymentAllocation::class);
+    }
 }

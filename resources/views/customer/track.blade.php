@@ -148,7 +148,7 @@
                             <a href="{{ route('customer.menu', $token) }}" class="btn-primary w-full">{{ __('customer.menu_again') }}</a>
                         </div>
                         <div class="mt-2 grid grid-cols-2 gap-2">
-                            <button type="button" class="btn-ghost btn-sm border border-line" data-service-request="waiter" data-service-url="{{ route('customer.call', $token) }}">{{ __('customer.call_waiter') }}</button>
+                            <button type="button" class="btn-ghost btn-sm border border-line" data-service-request="waiter" data-service-url="{{ route('customer.call', $token) }}"><span data-waiter-request-label>{{ __('customer.call_waiter') }}</span></button>
                             @if ($session['status'] === 'open')
                                 <div data-bill-request-group>
                                     <button type="button" class="btn-ghost btn-sm w-full border border-line disabled:cursor-not-allowed disabled:opacity-60" data-service-request="bill" data-bill-request data-request-sent-label="{{ __('customer.request_sent') }}" data-service-url="{{ route('customer.call', $token) }}" @disabled(! $canRequestBill) aria-disabled="{{ $canRequestBill ? 'false' : 'true' }}" @unless ($canRequestBill) aria-describedby="bill-request-help" @endunless><span data-bill-request-label>{{ __('customer.request_bill') }}</span></button>

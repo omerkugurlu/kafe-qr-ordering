@@ -215,10 +215,17 @@ class BoardController extends Controller
                 }
 
                 $hasItemPayment = Payment::query()
-                    ->whereIn('order_item_id', $lockedOrder->items()->select('id'))
                     ->whereNull('voided_at')
+                    ->where(function ($query) use ($lockedOrder): void {
+                        $query->whereIn('order_item_id', $lockedOrder->items()->select('id'))
+                            ->orWhereHas('allocations', fn ($allocations) => $allocations->whereIn('order_item_id', $lockedOrder->items()->select('id')));
+                    })
                     ->exists();
-                $hasUnallocatedPayment = $session->payments()->whereNull('order_item_id')->whereNull('voided_at')->exists();
+                $hasUnallocatedPayment = $session->payments()
+                    ->whereNull('order_item_id')
+                    ->whereNull('voided_at')
+                    ->whereDoesntHave('allocations')
+                    ->exists();
 
                 if ($hasItemPayment || $hasUnallocatedPayment) {
                     throw ValidationException::withMessages([

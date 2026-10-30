@@ -716,82 +716,109 @@ document.querySelectorAll('[data-options-form]').forEach((form) => {
     }
 });
 
-function initSplitBill(root) {
-    const dueCents = Number(root.dataset.dueCents || 0);
-    const peopleInput = root.querySelector('[data-split-people]');
-    const shareOutput = root.querySelector('[data-split-share]');
-    const lastOutput = root.querySelector('[data-split-last]');
-    const status = root.querySelector('[data-split-status]');
-    const amountInput = document.querySelector('[data-payment-amount]');
-    const personInput = document.querySelector('[data-payment-person]');
-    const allocationInput = document.querySelector('[data-payment-allocation]');
+function initPaymentPicker(root) {
+    const totalOutput = root.querySelector('[data-payment-total]');
+    const countOutput = root.querySelector('[data-payment-selected-count]');
+    const changeOutput = root.querySelector('[data-payment-change]');
+    const cashWrap = root.querySelector('[data-cash-received-wrap]');
+    const cashInput = root.querySelector('[data-cash-received]');
+    const searchInput = root.querySelector('[data-payment-search]');
+    const itemSummary = root.querySelector('[data-payment-items-summary]');
+    const emptyResults = root.querySelector('[data-payment-empty-results]');
+    const itemRows = [...root.querySelectorAll('[data-payment-item]')];
+    const methodInputs = [...root.querySelectorAll('input[name="method"]')];
+    const submit = root.querySelector('[data-payment-submit]');
+    const canSubmit = !submit?.disabled;
     const formatter = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const money = (cents) => `₺${formatter.format(cents / 100)}`;
 
-    if (!peopleInput || !amountInput) {
+    if (!totalOutput || !submit) {
         return;
     }
 
-    const people = () => Math.min(20, Math.max(1, Number.parseInt(peopleInput.value, 10) || 1));
-    const shareCents = () => Math.floor(dueCents / people());
-    const lastCents = () => dueCents - shareCents() * (people() - 1);
-
     const update = () => {
-        const count = people();
-        peopleInput.value = String(count);
-        shareOutput.textContent = money(shareCents());
-        lastOutput.textContent = money(lastCents());
-    };
+        let totalCents = 0;
+        let selectedQuantity = 0;
+        const selectedItems = [];
+        const isCash = root.querySelector('input[name="method"]:checked')?.value === 'cash';
 
-    allocationInput?.addEventListener('change', () => {
-        const selectedCents = Number(allocationInput.selectedOptions[0]?.dataset.dueCents || dueCents);
-        amountInput.value = selectedCents > 0 ? (selectedCents / 100).toFixed(2) : '';
-    });
+        itemRows.forEach((row) => {
+            const checkbox = row.querySelector('[data-payment-item-check]');
+            const quantityInput = row.querySelector('[data-payment-item-quantity]');
+            const quantity = Math.min(
+                Number(quantityInput.max || 0),
+                Math.max(1, Number.parseInt(quantityInput.value, 10) || 1),
+            );
 
-    const apply = (cents, label) => {
-        if (allocationInput) {
-            allocationInput.value = '';
-        }
-        amountInput.value = (cents / 100).toFixed(2);
-        personInput.value = label;
-        amountInput.focus({ preventScroll: true });
-        status.textContent = `${money(cents)} ödeme alanına aktarıldı.`;
-    };
-
-    root.querySelectorAll('[data-split-step]').forEach((button) => {
-        button.addEventListener('click', () => {
-            peopleInput.value = String(people() + Number(button.dataset.splitStep));
-            update();
-        });
-    });
-
-    peopleInput.addEventListener('input', update);
-    peopleInput.addEventListener('blur', update);
-
-    root.querySelectorAll('[data-split-apply]').forEach((button) => {
-        button.addEventListener('click', () => {
-            if (dueCents <= 0) {
-                return;
-            }
-
-            const count = people();
-            const mode = button.dataset.splitApply;
-
-            if (mode === 'share') {
-                apply(shareCents(), `1. kişi / ${count}`);
-            } else if (mode === 'last') {
-                apply(lastCents(), `${count}. kişi / ${count}`);
-            } else if (mode === 'half') {
-                apply(Math.floor(dueCents / 2), 'Yarım hesap');
+            if (checkbox.checked) {
+                quantityInput.disabled = false;
+                quantityInput.value = String(quantity);
+                totalCents += Math.min(Number(row.dataset.dueCents), Number(row.dataset.unitCents) * quantity);
+                selectedQuantity += quantity;
+                selectedItems.push(`${quantity}× ${row.querySelector('[data-payment-item-name]').textContent.trim()}`);
             } else {
-                apply(dueCents, 'Tam hesap');
+                quantityInput.disabled = true;
             }
         });
+
+        totalOutput.textContent = money(totalCents);
+        countOutput.textContent = String(selectedQuantity);
+        itemSummary.textContent = selectedItems.length > 0 ? selectedItems.join(' · ') : 'Ödenecek ürünleri seç.';
+        const cashReceivedCents = Math.round((Number(cashInput?.value) || 0) * 100);
+        const cashShortfallCents = Math.max(0, totalCents - cashReceivedCents);
+        changeOutput.textContent = isCash
+            ? (cashShortfallCents > 0
+                ? `Eksik: ${money(cashShortfallCents)}`
+                : `Para üstü: ${money(cashReceivedCents - totalCents)}`)
+            : 'Para üstü: —';
+        changeOutput.classList.toggle('text-danger', isCash && cashShortfallCents > 0);
+        changeOutput.classList.toggle('text-success', !isCash || cashShortfallCents === 0);
+        cashWrap.hidden = !isCash;
+        cashInput.disabled = !isCash;
+        submit.disabled = !canSubmit || totalCents <= 0 || (isCash && cashShortfallCents > 0);
+    };
+
+    root.querySelectorAll('[data-payment-item-check]').forEach((checkbox) => {
+        checkbox.addEventListener('change', update);
+    });
+    root.querySelectorAll('[data-payment-item-quantity]').forEach((input) => {
+        input.addEventListener('input', update);
+        input.addEventListener('change', update);
+    });
+    cashInput?.addEventListener('input', update);
+    methodInputs.forEach((input) => input.addEventListener('change', update));
+    searchInput?.addEventListener('input', () => {
+        const query = searchInput.value.trim().toLocaleLowerCase('tr-TR');
+        let visibleCount = 0;
+        itemRows.forEach((row) => {
+            const name = row.querySelector('[data-payment-item-name]').textContent.toLocaleLowerCase('tr-TR');
+            row.hidden = query !== '' && !name.includes(query);
+            if (!row.hidden) {
+                visibleCount += 1;
+            }
+        });
+        if (emptyResults) {
+            emptyResults.hidden = visibleCount > 0;
+        }
+    });
+    root.querySelector('[data-payment-select-all]')?.addEventListener('click', () => {
+        itemRows.forEach((row) => {
+            row.querySelector('[data-payment-item-check]').checked = true;
+            row.querySelector('[data-payment-item-quantity]').value = row.dataset.maxQuantity;
+        });
+        update();
+    });
+    root.querySelector('[data-payment-clear]')?.addEventListener('click', () => {
+        itemRows.forEach((row) => {
+            row.querySelector('[data-payment-item-check]').checked = false;
+            row.querySelector('[data-payment-item-quantity]').value = '1';
+        });
+        update();
     });
 
     update();
 }
 
-document.querySelectorAll('[data-split-bill]').forEach(initSplitBill);
+document.querySelectorAll('[data-payment-picker]').forEach(initPaymentPicker);
 
 Object.assign(window.skykite ?? {}, { openSheet, closeSheet, openDrawer, closeDrawer });

@@ -1693,6 +1693,8 @@ document.addEventListener('click', async (event) => {
     const original = button.innerHTML;
     const billLabel = button.querySelector('[data-bill-request-label]');
     const originalBillLabel = billLabel?.textContent ?? '';
+    const waiterLabel = button.querySelector('[data-waiter-request-label]');
+    const originalWaiterLabel = waiterLabel?.textContent ?? '';
 
     if (type === 'bill') {
         button.dataset.billRequestCoolingDown = 'true';
@@ -1701,6 +1703,33 @@ document.addEventListener('click', async (event) => {
     try {
         const response = await apiFetch(url, { method: 'POST', body: { type } });
         toast(response.message, 'success');
+        if (type === 'waiter' && Number(response.retry_after_seconds) > 0) {
+            let remaining = Number(response.retry_after_seconds);
+            button.disabled = true;
+            const updateWaiterCooldown = () => {
+                if (waiterLabel) {
+                    waiterLabel.textContent = `Tekrar: ${remaining} sn`;
+                } else {
+                    button.textContent = `Tekrar: ${remaining} sn`;
+                }
+            };
+            updateWaiterCooldown();
+            const timer = window.setInterval(() => {
+                remaining -= 1;
+                if (remaining <= 0) {
+                    window.clearInterval(timer);
+                    button.disabled = false;
+                    if (waiterLabel) {
+                        waiterLabel.textContent = originalWaiterLabel;
+                    } else {
+                        button.innerHTML = original;
+                    }
+                    return;
+                }
+                updateWaiterCooldown();
+            }, 1000);
+            return;
+        }
         if (type === 'bill' && billLabel) {
             billLabel.textContent = `✓ ${button.dataset.requestSentLabel || 'İletildi'}`;
         } else {
