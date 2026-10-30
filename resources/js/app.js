@@ -107,12 +107,23 @@ const setupSuggestionPicker = (picker, options) => {
     };
 
     const filterProducts = () => {
-        const categoryId = picker.querySelector('[data-suggestion-product-category]')?.value ?? '';
+        const categoryId = picker.dataset.activeProductCategory ?? '';
         const query = picker.querySelector('[data-suggestion-search]')?.value.trim().toLocaleLowerCase('tr-TR') ?? '';
+        const search = picker.querySelector('[data-suggestion-search]');
+        if (search) search.disabled = categoryId === '';
+        picker.querySelectorAll('[data-suggestion-category-filter]').forEach((button) => {
+            const active = button.dataset.categoryId === categoryId;
+            button.setAttribute('aria-pressed', String(active));
+            button.classList.toggle('border-forest', active);
+            button.classList.toggle('bg-sage', active);
+            button.classList.toggle('text-forest', active);
+            button.classList.toggle('bg-paper', !active);
+            button.classList.toggle('text-ink', !active);
+        });
         let visibleCount = 0;
         options.querySelectorAll('[data-suggestion-option]').forEach((option) => {
             const name = option.querySelector('[data-suggestion-product-name]')?.textContent?.trim().toLocaleLowerCase('tr-TR') ?? '';
-            const categoryMatches = categoryId === 'all' || (categoryId !== '' && option.dataset.suggestionCategoryId === categoryId);
+            const categoryMatches = categoryId !== '' && option.dataset.suggestionCategoryId === categoryId;
             option.hidden = !categoryMatches || !name.includes(query);
             if (!option.hidden) visibleCount += 1;
         });
@@ -125,7 +136,7 @@ const setupSuggestionPicker = (picker, options) => {
         }
         emptyState.hidden = visibleCount > 0;
         emptyState.textContent = categoryId === ''
-            ? 'Ürünleri görmek için önce kategori seçin.'
+            ? 'Ürünleri görmek için yukarıdan bir kategori seçin.'
             : 'Bu kategoride aramanızla eşleşen ürün bulunamadı.';
     };
 
@@ -168,11 +179,15 @@ document.addEventListener('toggle', (event) => {
         });
         options.dataset.loaded = 'true';
 
-        const categorySelect = picker.querySelector('[data-suggestion-product-category]');
         const firstSelectedProduct = options.querySelector('[data-suggestion-option] input[type="checkbox"]:checked')?.closest('[data-suggestion-option]');
-        if (categorySelect && firstSelectedProduct) categorySelect.value = firstSelectedProduct.dataset.suggestionCategoryId ?? '';
+        if (firstSelectedProduct) picker.dataset.activeProductCategory = firstSelectedProduct.dataset.suggestionCategoryId ?? '';
 
-        categorySelect?.addEventListener('change', filterProducts);
+        picker.querySelectorAll('[data-suggestion-category-filter]').forEach((button) => {
+            button.addEventListener('click', () => {
+                picker.dataset.activeProductCategory = button.dataset.categoryId ?? '';
+                filterProducts();
+            });
+        });
         picker.querySelector('[data-suggestion-search]')?.addEventListener('input', filterProducts);
         filterProducts();
     }

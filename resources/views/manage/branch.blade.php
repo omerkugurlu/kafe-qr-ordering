@@ -82,41 +82,6 @@
         </div>
     @endif
 
-    @if ($suggestionPool->where('is_available', true)->isNotEmpty())
-        <section class="mt-4 rounded-2xl border border-line bg-paper p-4 sm:p-5" aria-labelledby="featured-manager-title">
-            <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                    <h2 id="featured-manager-title" class="font-display text-xl font-semibold text-ink">Popüler ürünler</h2>
-                    <p class="mt-1 text-sm text-muted">Müşteri menüsünün üstünde görünecek en fazla 8 ürünü seçin.</p>
-                </div>
-                <span data-featured-count class="rounded-full bg-sage px-3 py-1.5 text-sm font-bold text-forest">{{ $suggestionPool->where('is_available', true)->where('is_featured', true)->count() }} / 8 seçili</span>
-            </div>
-            <form method="POST" action="{{ route('manage.branches.featured.update', $branch) }}" data-featured-picker class="space-y-3">
-                @csrf
-                @method('PATCH')
-                <div class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                    <label class="block"><span class="label">Kategoriye göre bul</span><select data-featured-category class="input min-h-11 py-2 text-sm"><option value="all">Tüm kategoriler</option>@foreach ($categories as $featuredCategory)<option value="{{ $featuredCategory->id }}">{{ $featuredCategory->name }}</option>@endforeach</select></label>
-                    <label class="block"><span class="label">Ürün ara</span><input type="search" data-featured-search class="input min-h-11 py-2 text-sm" placeholder="Ürün adı yazın..." autocomplete="off"></label>
-                </div>
-                <div data-featured-options class="grid max-h-72 gap-1 overflow-y-auto rounded-xl border border-line bg-cream/40 p-2 sm:grid-cols-2">
-                    @foreach ($suggestionPool->where('is_available', true) as $featuredProduct)
-                        <label data-featured-option data-category-id="{{ $featuredProduct->category_id }}" class="flex min-h-12 items-center gap-3 rounded-xl px-3 text-sm font-semibold text-ink hover:bg-paper">
-                            <input type="checkbox" name="featured_ids[]" value="{{ $featuredProduct->id }}" @checked($featuredProduct->is_featured) class="size-5 shrink-0 accent-forest">
-                            <span class="min-w-0 flex-1 truncate" data-featured-name>{{ $featuredProduct->name }}</span>
-                            <span class="shrink-0 text-xs font-medium text-muted">{{ $categories->firstWhere('id', $featuredProduct->category_id)?->name }}</span>
-                        </label>
-                    @endforeach
-                </div>
-                <p data-featured-message role="status" aria-live="polite" class="min-h-5 text-sm font-medium text-danger"></p>
-                <div class="flex flex-col gap-2 sm:flex-row">
-                    <button type="button" data-featured-select-visible class="btn btn-secondary min-h-11 flex-1">Görünenleri seç</button>
-                    <button type="button" data-featured-clear class="btn btn-secondary min-h-11 flex-1">Seçimi temizle</button>
-                    <button type="submit" class="btn btn-primary min-h-11 flex-1">Popüler ürünleri kaydet</button>
-                </div>
-            </form>
-        </section>
-    @endif
-
     @if ($suggestionPool->isNotEmpty())
         <template id="menu-suggestion-options">
             @foreach ($suggestionPool as $suggestion)
@@ -294,10 +259,19 @@
                                                                 <div><p class="text-sm font-bold text-ink">Sepete eklenince öner</p><p class="mt-0.5 text-xs text-muted">Müşteri bu ürünü sepete eklediğinde gösterilir.</p></div>
                                                                 <span data-suggestion-count class="shrink-0 rounded-full bg-sage px-2 py-1 text-[10px] font-bold text-forest">0 seçili</span>
                                                             </div>
-                                                            <label class="block"><span class="label">1. Kategori seç</span><select data-suggestion-product-category class="input min-h-11 py-2 text-sm"><option value="">Önce bir kategori seçin</option><option value="all">Tüm kategoriler</option>@foreach ($categories as $suggestionCategory)<option value="{{ $suggestionCategory->id }}">{{ $suggestionCategory->name }}</option>@endforeach</select></label>
-                                                            <label class="mt-2 block"><span class="label">2. Ürün ara</span><input type="search" data-suggestion-search autocomplete="off" class="input min-h-11 py-2 text-sm" placeholder="Seçtiğiniz kategoride ürün ara..." aria-label="Seçili kategoride ürün ara"></label>
+                                                            <div class="mt-2"><span class="label">1. Kategoriye dokun</span><div data-suggestion-product-categories role="group" aria-label="Ürün kategorileri" class="mt-1 grid max-h-44 grid-cols-2 gap-2 overflow-y-auto">
+                                                                @foreach ($categories as $suggestionCategory)
+                                                                    @php($categorySuggestionCount = $suggestionPool->where('category_id', $suggestionCategory->id)->where('id', '!=', $product->id)->count())
+                                                                    @if ($categorySuggestionCount > 0)
+                                                                        <button type="button" data-suggestion-category-filter data-category-id="{{ $suggestionCategory->id }}" aria-pressed="false" class="flex min-h-11 min-w-0 items-center justify-between gap-2 rounded-xl border border-line bg-paper px-3 text-left text-sm font-semibold text-ink hover:border-forest/50">
+                                                                            <span class="truncate">{{ $suggestionCategory->name }}</span><span class="shrink-0 rounded-full bg-cream px-2 py-0.5 text-xs text-muted">{{ $categorySuggestionCount }}</span>
+                                                                        </button>
+                                                                    @endif
+                                                                @endforeach
+                                                            </div></div>
+                                                            <label class="mt-2 block"><span class="label">2. Ürün ara</span><input type="search" data-suggestion-search autocomplete="off" disabled class="input min-h-11 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60" placeholder="Önce yukarıdan kategori seçin" aria-label="Seçili kategoride ürün ara"></label>
                                                             <div class="mt-2 flex gap-2"><button type="button" data-select-visible class="btn btn-secondary min-h-11 flex-1 text-xs">Bulunanları seç</button><button type="button" data-clear-selection class="btn btn-secondary min-h-11 flex-1 text-xs">Seçimi temizle</button></div>
-                                                            <div data-suggestion-options aria-live="polite" class="mt-2 grid max-h-64 gap-1 overflow-y-auto rounded-xl bg-cream/50 p-2 sm:grid-cols-2">
+                                                            <div data-suggestion-options aria-live="polite" class="mt-2 grid max-h-64 gap-1 overflow-y-auto rounded-xl bg-cream/50 p-2">
                                                                 <p class="col-span-full py-2 text-sm font-medium text-muted">Ürün listesini görüntülemek için düzenlemeyi açın.</p>
                                                             </div>
                                                         </div>
@@ -356,6 +330,39 @@
         </section>
 
         <aside class="space-y-4 xl:sticky xl:top-24 xl:self-start">
+            @if ($suggestionPool->where('is_available', true)->isNotEmpty())
+                <section class="card overflow-hidden" aria-labelledby="featured-manager-title">
+                    <details>
+                        <summary class="flex min-h-16 cursor-pointer list-none items-center gap-3 px-4 py-3">
+                            <span class="grid size-10 shrink-0 place-items-center rounded-full bg-amber-soft text-amber-900"><x-ui.icon name="star" class="size-5" /></span>
+                            <span class="min-w-0 flex-1"><span id="featured-manager-title" class="block font-display text-lg font-semibold text-ink">Popüler ürünler</span><span class="block text-xs text-muted">Müşteri menüsünün üstünde göster</span></span>
+                            <span data-featured-count class="shrink-0 rounded-full bg-sage px-2.5 py-1 text-xs font-bold text-forest">{{ $suggestionPool->where('is_available', true)->where('is_featured', true)->count() }} / 8</span>
+                        </summary>
+                        <form method="POST" action="{{ route('manage.branches.featured.update', $branch) }}" data-featured-picker class="space-y-3 border-t border-line p-4">
+                            @csrf
+                            @method('PATCH')
+                            <p class="text-sm text-muted">En fazla 8 ürün seçin.</p>
+                            <label class="block"><span class="label">Kategori</span><select data-featured-category class="input min-h-11 py-2 text-sm"><option value="all">Tüm kategoriler</option>@foreach ($categories as $featuredCategory)<option value="{{ $featuredCategory->id }}">{{ $featuredCategory->name }}</option>@endforeach</select></label>
+                            <label class="block"><span class="label">Ürün ara</span><input type="search" data-featured-search class="input min-h-11 py-2 text-sm" placeholder="Ürün adı yazın..." autocomplete="off"></label>
+                            <div data-featured-options class="grid max-h-56 gap-1 overflow-y-auto rounded-xl border border-line bg-cream/40 p-2">
+                                @foreach ($suggestionPool->where('is_available', true) as $featuredProduct)
+                                    <label data-featured-option data-category-id="{{ $featuredProduct->category_id }}" class="flex min-h-12 items-center gap-3 rounded-xl px-3 text-sm font-semibold text-ink hover:bg-paper">
+                                        <input type="checkbox" name="featured_ids[]" value="{{ $featuredProduct->id }}" @checked($featuredProduct->is_featured) class="size-5 shrink-0 accent-forest">
+                                        <span class="min-w-0 flex-1 truncate" data-featured-name>{{ $featuredProduct->name }}</span>
+                                    </label>
+                                @endforeach
+                            </div>
+                            <p data-featured-message role="status" aria-live="polite" class="min-h-5 text-sm font-medium text-danger"></p>
+                            <div class="grid gap-2">
+                                <button type="button" data-featured-select-visible class="btn btn-secondary min-h-11 w-full">Görünenleri seç</button>
+                                <button type="button" data-featured-clear class="btn btn-secondary min-h-11 w-full">Seçimi temizle</button>
+                                <button type="submit" class="btn btn-primary min-h-11 w-full">Kaydet</button>
+                            </div>
+                        </form>
+                    </details>
+                </section>
+            @endif
+
             <section class="card p-4">
                 <div class="flex items-center justify-between gap-2">
                     <div>
@@ -439,10 +446,19 @@
                                 <div class="mt-3 space-y-3">
                                     <div data-suggestion-picker data-selected-suggestions="{{ implode(',', old('suggestions', [])) }}" class="rounded-2xl border border-line bg-paper p-3">
                                         <div class="mb-2 flex items-center justify-between gap-2"><div><p class="text-sm font-bold text-ink">Ürün eklenince öner</p><p class="mt-0.5 text-xs text-muted">Bu ürün sepete eklenince gösterilir.</p></div><span data-suggestion-count class="shrink-0 rounded-full bg-sage px-2 py-1 text-[10px] font-bold text-forest">0 seçili</span></div>
-                                        <label class="block"><span class="label">1. Kategori seç</span><select data-suggestion-product-category class="input min-h-11 py-2 text-sm"><option value="">Önce bir kategori seçin</option><option value="all">Tüm kategoriler</option>@foreach ($categories as $suggestionCategory)<option value="{{ $suggestionCategory->id }}">{{ $suggestionCategory->name }}</option>@endforeach</select></label>
-                                        <label class="mt-2 block"><span class="label">2. Ürün ara</span><input id="new-product-suggestion-search" type="search" data-suggestion-search autocomplete="off" class="input min-h-11 py-2 text-sm" placeholder="Seçtiğiniz kategoride ürün ara..." aria-label="Seçili kategoride ürün ara"></label>
+                                        <div class="mt-2"><span class="label">1. Kategoriye dokun</span><div data-suggestion-product-categories role="group" aria-label="Ürün kategorileri" class="mt-1 grid max-h-44 grid-cols-2 gap-2 overflow-y-auto">
+                                            @foreach ($categories as $suggestionCategory)
+                                                @php($categorySuggestionCount = $suggestionPool->where('category_id', $suggestionCategory->id)->count())
+                                                @if ($categorySuggestionCount > 0)
+                                                    <button type="button" data-suggestion-category-filter data-category-id="{{ $suggestionCategory->id }}" aria-pressed="false" class="flex min-h-11 min-w-0 items-center justify-between gap-2 rounded-xl border border-line bg-paper px-3 text-left text-sm font-semibold text-ink hover:border-forest/50">
+                                                        <span class="truncate">{{ $suggestionCategory->name }}</span><span class="shrink-0 rounded-full bg-cream px-2 py-0.5 text-xs text-muted">{{ $categorySuggestionCount }}</span>
+                                                    </button>
+                                                @endif
+                                            @endforeach
+                                        </div></div>
+                                        <label class="mt-2 block"><span class="label">2. Ürün ara</span><input id="new-product-suggestion-search" type="search" data-suggestion-search autocomplete="off" disabled class="input min-h-11 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60" placeholder="Önce yukarıdan kategori seçin" aria-label="Seçili kategoride ürün ara"></label>
                                         <div class="mt-2 flex gap-2"><button type="button" data-select-visible class="btn btn-secondary min-h-11 flex-1 text-xs">Bulunanları seç</button><button type="button" data-clear-selection class="btn btn-secondary min-h-11 flex-1 text-xs">Seçimi temizle</button></div>
-                                        <div data-suggestion-options aria-live="polite" class="mt-2 grid max-h-64 gap-1 overflow-y-auto rounded-xl bg-cream/50 p-2 sm:grid-cols-2">
+                                        <div data-suggestion-options aria-live="polite" class="mt-2 grid max-h-64 gap-1 overflow-y-auto rounded-xl bg-cream/50 p-2">
                                             <p class="col-span-full py-2 text-sm font-medium text-muted">Ürün listesini görüntülemek için ayarları açın.</p>
                                         </div>
                                     </div>

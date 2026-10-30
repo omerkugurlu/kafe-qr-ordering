@@ -334,9 +334,32 @@ function initMenu(root, data) {
         if (fallback) fallback.hidden = false;
     }, true);
 
+    const activateProductImages = (node) => {
+        const images = [];
+        if (node instanceof HTMLImageElement && node.matches('[data-menu-image-url]')) images.push(node);
+        node.querySelectorAll?.('img[data-menu-image-url]').forEach((image) => images.push(image));
+
+        images.forEach((image) => {
+            const imageUrl = image.dataset.menuImageUrl;
+            if (!imageUrl) return;
+            image.addEventListener('error', () => {
+                image.hidden = true;
+                const fallback = image.nextElementSibling;
+                if (fallback) fallback.hidden = false;
+            }, { once: true });
+            delete image.dataset.menuImageUrl;
+            image.src = imageUrl;
+        });
+    };
+
+    const productImageObserver = new MutationObserver((records) => {
+        records.forEach((record) => record.addedNodes.forEach(activateProductImages));
+    });
+    productImageObserver.observe(root, { childList: true, subtree: true });
+
     function productImage(product, sizeClass, iconClass = 'size-7', loading = 'lazy') {
         if (product.image_url) {
-            return `<img data-menu-product-image src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name ?? '')}" class="${sizeClass} object-cover" loading="${loading}" decoding="async"${loading === 'eager' ? ' fetchpriority="high"' : ''}><span hidden class="grid ${sizeClass} place-items-center bg-gradient-to-br from-sage to-cream text-forest/50">${coffeeFallback.replace('size-7', iconClass)}</span>`;
+            return `<img data-menu-product-image data-menu-image-url="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name ?? '')}" class="${sizeClass} object-cover" loading="${loading}" decoding="async"${loading === 'eager' ? ' fetchpriority="high"' : ''}><span hidden class="grid ${sizeClass} place-items-center bg-gradient-to-br from-sage to-cream text-forest/50">${coffeeFallback.replace('size-7', iconClass)}</span>`;
         }
 
         return `<span class="grid ${sizeClass} place-items-center bg-gradient-to-br from-sage to-cream text-forest/50">${coffeeFallback.replace('size-7', iconClass)}</span>`;
