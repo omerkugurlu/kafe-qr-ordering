@@ -332,13 +332,17 @@
         <aside class="space-y-4 xl:sticky xl:top-24 xl:self-start">
             @if ($suggestionPool->where('is_available', true)->isNotEmpty())
                 <section class="card overflow-hidden" aria-labelledby="featured-manager-title">
+                    <div class="flex flex-wrap items-center gap-3 p-4">
+                        <span class="grid size-10 shrink-0 place-items-center rounded-full bg-amber-soft text-amber-900"><x-ui.icon name="star" class="size-5" /></span>
+                        <span class="min-w-0 flex-1"><span id="featured-manager-title" class="block font-display text-lg font-semibold text-ink">Popüler ürünler</span><span class="block text-xs text-muted">Müşteri menüsünün üstünde göster</span></span>
+                        <span data-featured-count class="shrink-0 rounded-full bg-sage px-2.5 py-1 text-xs font-bold text-forest">{{ $suggestionPool->where('is_available', true)->where('is_featured', true)->count() }} / 8</span>
+                        <button type="submit" form="featured-products-form" class="btn btn-primary min-h-11 w-full sm:w-auto">Popüler ürünleri kaydet</button>
+                    </div>
                     <details>
-                        <summary class="flex min-h-16 cursor-pointer list-none items-center gap-3 px-4 py-3">
-                            <span class="grid size-10 shrink-0 place-items-center rounded-full bg-amber-soft text-amber-900"><x-ui.icon name="star" class="size-5" /></span>
-                            <span class="min-w-0 flex-1"><span id="featured-manager-title" class="block font-display text-lg font-semibold text-ink">Popüler ürünler</span><span class="block text-xs text-muted">Müşteri menüsünün üstünde göster</span></span>
-                            <span data-featured-count class="shrink-0 rounded-full bg-sage px-2.5 py-1 text-xs font-bold text-forest">{{ $suggestionPool->where('is_available', true)->where('is_featured', true)->count() }} / 8</span>
+                        <summary class="flex min-h-12 cursor-pointer list-none items-center border-t border-line px-4 py-3 text-sm font-semibold text-forest">
+                            Ürün seçimini aç veya düzenle
                         </summary>
-                        <form method="POST" action="{{ route('manage.branches.featured.update', $branch) }}" data-featured-picker class="space-y-3 border-t border-line p-4">
+                        <form id="featured-products-form" method="POST" action="{{ route('manage.branches.featured.update', $branch) }}" data-featured-picker class="space-y-3 border-t border-line p-4">
                             @csrf
                             @method('PATCH')
                             <p class="text-sm text-muted">En fazla 8 ürün seçin.</p>
@@ -361,7 +365,7 @@
                             <div class="grid gap-2">
                                 <button type="button" data-featured-select-visible class="btn btn-secondary min-h-11 w-full">Görünenleri seç</button>
                                 <button type="button" data-featured-clear class="btn btn-secondary min-h-11 w-full">Seçimi temizle</button>
-                                <button type="submit" class="btn btn-primary min-h-11 w-full">Kaydet</button>
+                                <button type="submit" class="btn btn-primary min-h-11 w-full">Popüler ürünleri kaydet</button>
                             </div>
                         </form>
                     </details>
