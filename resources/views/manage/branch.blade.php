@@ -147,6 +147,9 @@
             <div class="space-y-3 p-4">
                 <div class="flex items-center gap-3"><span class="grid size-10 shrink-0 place-items-center rounded-full bg-sage text-forest"><x-ui.icon name="sparkles" class="size-5" /></span><div><h2 id="recommendation-manager-title" class="font-display text-base font-semibold text-ink">İyi gider önerileri</h2><p class="mt-1 text-xs text-muted">Ürün seç, önerilerini düzenle ve kaydet</p></div></div>
                 @if ($recommendationProduct)
+                    <button type="submit" form="recommendation-manager-form" class="btn btn-primary min-h-11 w-full">İyi gider önerilerini kaydet</button>
+                @endif
+                @if ($recommendationProduct)
                     <div data-recommendation-details data-product-id="{{ $recommendationProduct->id }}">
                     <form id="recommendation-manager-form" method="post" action="{{ route('manage.products.recommendations.update', [$branch, $recommendationProduct->id]) }}" data-recommendation-manager data-route-template="{{ route('manage.products.recommendations.update', [$branch, 0]) }}" class="space-y-3">
                         @csrf @method('PATCH')
@@ -173,7 +176,6 @@
                             <div class="mt-2 flex gap-2"><button type="button" data-select-visible class="btn btn-secondary btn-sm min-h-9 flex-1 text-[10px]">Bulunanları seç</button><button type="button" data-clear-selection class="btn btn-secondary btn-sm min-h-9 flex-1 text-[10px]">Seçimi temizle</button></div>
                             <div data-suggestion-category-options class="mt-2 grid max-h-32 gap-1 overflow-y-auto rounded-xl bg-cream/50 p-2 sm:grid-cols-2"><p class="col-span-full py-2 text-[11px] font-medium text-muted">Kategori listesi yükleniyor.</p></div>
                         </div>
-                        <button type="submit" class="btn btn-primary min-h-11 w-full">İyi gider önerilerini kaydet</button>
                     </form>
                     </div>
                 @else
