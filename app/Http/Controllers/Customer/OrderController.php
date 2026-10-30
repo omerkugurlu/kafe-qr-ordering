@@ -45,6 +45,7 @@ class OrderController extends Controller
             'lines.*.option_ids' => ['nullable', 'array', 'max:20'],
             'lines.*.option_ids.*' => ['integer', 'min:1'],
             'lines.*.note' => ['nullable', 'string', 'max:140'],
+            'lines.*.is_loyalty_reward' => ['sometimes', 'boolean'],
             'items' => ['nullable', 'array', 'min:1', 'max:500'],
             'items.*' => ['integer', 'min:0', 'max:20'],
             'options' => ['nullable', 'array'],
@@ -119,6 +120,7 @@ class OrderController extends Controller
                 'quantity' => (int) $line['quantity'],
                 'option_ids' => array_map('intval', $line['option_ids'] ?? []),
                 'note' => isset($line['note']) ? trim((string) $line['note']) : null,
+                'is_loyalty_reward' => (bool) ($line['is_loyalty_reward'] ?? false),
             ])
             ->values();
 
@@ -198,6 +200,33 @@ class OrderController extends Controller
             }
 
             $branchMenuId = $lockedBranch->uses_shared_menu ? null : $lockedBranch->id;
+            $rewardLines = $lines->filter(fn (array $line): bool => $line['is_loyalty_reward']);
+            $rewardCampaign = null;
+            if ($rewardLines->isNotEmpty()) {
+                if ($couponCode !== null || $lockedCustomer === null || empty($validated['loyalty_campaign_id'])) {
+                    throw ValidationException::withMessages(['loyalty_campaign_id' => 'Ücretsiz ürün seçmek için hesabınızla giriş yapıp bir puan kampanyası seçin.']);
+                }
+                $rewardCampaign = LoyaltyCampaign::query()
+                    ->whereKey($validated['loyalty_campaign_id'])
+                    ->where('cafe_id', $lockedCafe->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+                if ($rewardCampaign->reward_type !== LoyaltyCampaign::REWARD_PRODUCT
+                    || $rewardLines->count() !== 1
+                    || $rewardLines->first()['quantity'] !== 1
+                    || $rewardLines->first()['option_ids'] !== []
+                    || ! in_array($rewardLines->first()['product_id'], $rewardCampaign->rewardProductIds(), true)) {
+                    throw ValidationException::withMessages(['loyalty_campaign_id' => 'Kampanyada tanımlı ürünlerden yalnızca birini ücretsiz seçebilirsiniz.']);
+                }
+            } elseif (! empty($validated['loyalty_campaign_id'])) {
+                $rewardCampaign = LoyaltyCampaign::query()
+                    ->whereKey($validated['loyalty_campaign_id'])
+                    ->where('cafe_id', $lockedCafe->id)
+                    ->firstOrFail();
+                if ($rewardCampaign->reward_type === LoyaltyCampaign::REWARD_PRODUCT) {
+                    throw ValidationException::withMessages(['loyalty_campaign_id' => 'Ücretsiz ürün kampanyası için menüden bir ürün seçin.']);
+                }
+            }
             $productIds = $hasLines
                 ? $lines->pluck('product_id')->unique()->values()
                 : $quantities->keys()->values();
@@ -236,8 +265,12 @@ class OrderController extends Controller
             if ($hasLines) {
                 foreach ($lines as $line) {
                     $product = $products->get($line['product_id']);
-                    $resolved = $optionSelection->resolveLine($product, $line['option_ids']);
-                    $unitPriceCents = Money::toCents($product->priceFor($lockedBranch)) + $resolved['price_delta_cents'];
+                    $isReward = $line['is_loyalty_reward'];
+                    $resolved = $isReward
+                        ? ['snapshots' => [], 'price_delta_cents' => 0]
+                        : $optionSelection->resolveLine($product, $line['option_ids']);
+                    $listUnitPriceCents = Money::toCents($product->priceFor($lockedBranch)) + $resolved['price_delta_cents'];
+                    $unitPriceCents = $isReward ? 0 : $listUnitPriceCents;
                     $lineCents = $unitPriceCents * $line['quantity'];
                     $subtotalCents += $lineCents;
                     $snapshots[] = [
@@ -246,6 +279,8 @@ class OrderController extends Controller
                         'unit_price' => Money::toDecimal($unitPriceCents),
                         'quantity' => $line['quantity'],
                         'line_total' => Money::toDecimal($lineCents),
+                        'is_loyalty_reward' => $isReward,
+                        'list_unit_price' => $isReward ? Money::toDecimal($listUnitPriceCents) : null,
                         'customer_note' => $line['note'] ?: null,
                         'option_snapshots' => $resolved['snapshots'],
                     ];

@@ -18,6 +18,8 @@ class OrderItem extends Model
         'unit_price',
         'quantity',
         'line_total',
+        'is_loyalty_reward',
+        'list_unit_price',
         'customer_note',
     ];
 
@@ -27,6 +29,8 @@ class OrderItem extends Model
             'unit_price' => 'decimal:2',
             'quantity' => 'integer',
             'line_total' => 'decimal:2',
+            'is_loyalty_reward' => 'boolean',
+            'list_unit_price' => 'decimal:2',
         ];
     }
 

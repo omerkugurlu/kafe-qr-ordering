@@ -22,9 +22,10 @@ class LoyaltyCampaignController extends Controller
 
         return view('manage.loyalty', [
             'cafe' => $cafe,
-            'campaigns' => $cafe->loyaltyCampaigns()->with(['rewardProduct'])->withCount('transactions')->latest()->get(),
+            'campaigns' => $cafe->loyaltyCampaigns()->withCount('transactions')->latest()->get(),
             'products' => $cafe->products()
                 ->where('is_available', true)
+                ->whereHas('category', fn ($query) => $query->where('is_active', true))
                 ->whereDoesntHave('optionGroups', fn ($query) => $query->where('is_active', true)->where('min_selections', '>', 0))
                 ->orderBy('name')
                 ->get(),
@@ -75,7 +76,8 @@ class LoyaltyCampaignController extends Controller
             'points_required' => ['nullable', 'integer', 'min:0', 'max:100000'],
             'reward_type' => ['required', Rule::in([LoyaltyCampaign::REWARD_PERCENT, LoyaltyCampaign::REWARD_FIXED, LoyaltyCampaign::REWARD_PRODUCT])],
             'reward_value' => ['nullable', 'numeric', 'min:0', 'max:100000', 'decimal:0,2'],
-            'reward_product_id' => ['nullable', 'required_if:reward_type,product', 'integer', Rule::exists('menu_products', 'id')->where('cafe_id', request()->user()->cafe_id)],
+            'reward_product_ids' => ['required_if:reward_type,product', 'array', 'min:1', 'max:30'],
+            'reward_product_ids.*' => ['integer', 'distinct', Rule::exists('menu_products', 'id')->where('cafe_id', request()->user()->cafe_id)],
             'minimum_order_total' => ['required', 'numeric', 'min:0', 'max:1000000', 'decimal:0,2'],
             'starts_at' => ['nullable', 'date'],
             'ends_at' => ['nullable', 'date', 'after_or_equal:starts_at'],
@@ -90,15 +92,17 @@ class LoyaltyCampaignController extends Controller
         }
 
         if ($validated['reward_type'] === LoyaltyCampaign::REWARD_PRODUCT) {
-            $isEligibleProduct = MenuProduct::query()
-                ->whereKey($validated['reward_product_id'] ?? null)
+            $selectedIds = array_map('intval', $validated['reward_product_ids'] ?? []);
+            $eligibleCount = MenuProduct::query()
+                ->whereIn('id', $selectedIds)
                 ->where('cafe_id', $request->user()->cafe_id)
                 ->where('is_available', true)
+                ->whereHas('category', fn ($query) => $query->where('is_active', true))
                 ->whereDoesntHave('optionGroups', fn ($query) => $query->where('is_active', true)->where('min_selections', '>', 0))
-                ->exists();
+                ->count();
 
-            if (! $isEligibleProduct) {
-                throw ValidationException::withMessages(['reward_product_id' => 'Ücretsiz ürün olarak seçilen ürün şu anda ödüle uygun değil.']);
+            if ($eligibleCount !== count($selectedIds)) {
+                throw ValidationException::withMessages(['reward_product_ids' => 'Seçilen ürünlerden biri güncel menüde ödüle uygun değil.']);
             }
         }
 
@@ -115,8 +119,11 @@ class LoyaltyCampaignController extends Controller
     {
         if ($validated['reward_type'] === LoyaltyCampaign::REWARD_PRODUCT) {
             $validated['reward_value'] = '0.00';
+            $validated['reward_product_ids'] = array_values(array_map('intval', $validated['reward_product_ids']));
+            $validated['reward_product_id'] = null;
         } else {
             $validated['reward_product_id'] = null;
+            $validated['reward_product_ids'] = null;
         }
 
         return $validated;

@@ -2,6 +2,47 @@ import { toast } from './core.js';
 import './customer-menu.js';
 import './staff-live.js';
 
+document.querySelectorAll('[data-loyalty-campaign-form]').forEach((form) => {
+    const type = form.querySelector('[name="reward_type"]');
+    const valueField = form.querySelector('[data-reward-value-field]');
+    const valueInput = valueField?.querySelector('[name="reward_value"]');
+    const productsField = form.querySelector('[data-reward-products-field]');
+    const productInputs = [...(productsField?.querySelectorAll('[name="reward_product_ids[]"]') ?? [])];
+    const productSearch = productsField?.querySelector('[data-reward-product-search]');
+    const productOptions = [...(productsField?.querySelectorAll('[data-reward-product-option]') ?? [])];
+
+    productSearch?.addEventListener('input', () => {
+        const query = productSearch.value.trim().toLocaleLowerCase('tr-TR');
+        productOptions.forEach((option) => {
+            const name = option.querySelector('[data-reward-product-name]')?.textContent?.trim().toLocaleLowerCase('tr-TR') ?? '';
+            option.hidden = !name.includes(query);
+        });
+    });
+
+    const update = () => {
+        const productReward = type?.value === 'product';
+        if (valueField) valueField.hidden = productReward;
+        if (valueInput) {
+            valueInput.required = !productReward;
+            valueInput.disabled = productReward;
+        }
+        if (productsField) productsField.hidden = !productReward;
+        productInputs.forEach((input) => { input.disabled = !productReward; });
+    };
+
+    type?.addEventListener('change', update);
+    form.addEventListener('submit', (event) => {
+        if (type?.value === 'product' && !productInputs.some((input) => input.checked)) {
+            event.preventDefault();
+            const first = productInputs[0];
+            first?.setCustomValidity('Ücretsiz ödül için en az bir ürün seçin.');
+            first?.reportValidity();
+            first?.addEventListener('change', () => first.setCustomValidity(''), { once: true });
+        }
+    });
+    update();
+});
+
 /**
  * Sheets (bottom sheet on mobile, centered dialog on desktop).
  */

@@ -10,6 +10,7 @@ use App\Models\DiningTable;
 use App\Models\LoyaltyAccount;
 use App\Models\LoyaltyCampaign;
 use App\Models\LoyaltyTransaction;
+use App\Models\MenuProduct;
 use App\Models\Order;
 use App\Models\User;
 use App\Services\LoyaltyService;
@@ -64,10 +65,9 @@ final class AccountController extends Controller
             ? $cafe->loyaltyCampaigns()
                 ->where('is_active', true)
                 ->orderBy('name')
-                ->with('rewardProduct')
                 ->get()
                 ->filter(fn (LoyaltyCampaign $campaign): bool => $campaign->isCurrentlyActive())
-                ->map(function (LoyaltyCampaign $campaign) use ($account, $availableCampaignIds, $campaignOrderDeltas): array {
+                ->map(function (LoyaltyCampaign $campaign) use ($account, $availableCampaignIds, $campaignOrderDeltas, $cafe): array {
                     $required = $campaign->type === LoyaltyCampaign::TYPE_POINTS
                         ? $campaign->requiredPoints()
                         : $campaign->requiredOrderCount();
@@ -82,7 +82,7 @@ final class AccountController extends Controller
                         'progress' => min(100, (int) round($current / max(1, $required) * 100)),
                         'available' => in_array($campaign->id, $availableCampaignIds, true),
                         'reward' => $campaign->reward_type === LoyaltyCampaign::REWARD_PRODUCT
-                            ? 'Ücretsiz: '.($campaign->rewardProduct?->name ?? 'ürün')
+                            ? 'Ücretsiz ürün seçimi: '.MenuProduct::query()->where('cafe_id', $cafe->id)->whereIn('id', $campaign->rewardProductIds())->orderBy('name')->pluck('name')->implode(', ')
                             : ($campaign->reward_type === LoyaltyCampaign::REWARD_PERCENT
                                 ? '%'.rtrim(rtrim(number_format((float) $campaign->reward_value, 2, ',', ''), '0'), ',')
                                 : Money::format(Money::toCents((string) $campaign->reward_value))),

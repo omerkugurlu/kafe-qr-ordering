@@ -13,6 +13,7 @@ use App\Models\Order;
 use App\Models\TableSession;
 use App\Models\User;
 use App\Services\Money;
+use App\Services\LoyaltyService;
 use App\Services\OrderPresenter;
 use App\Services\SubscriptionService;
 use Illuminate\Http\RedirectResponse;
@@ -23,7 +24,7 @@ use Illuminate\Support\Str;
 
 class MenuController extends Controller
 {
-    public function show(Request $request, string $token, OrderPresenter $presenter, SubscriptionService $subscriptions): Response|RedirectResponse
+    public function show(Request $request, string $token, OrderPresenter $presenter, SubscriptionService $subscriptions, LoyaltyService $loyaltyService): Response|RedirectResponse
     {
         $table = DiningTable::query()
             ->where('public_token_hash', hash('sha256', $token))
@@ -147,34 +148,29 @@ class MenuController extends Controller
                 ->where('user_id', $customer->id)
                 ->first();
 
+            $availableCampaignIds = $loyaltyService->availableCampaigns($cafe, $customer)->modelKeys();
             $campaigns = $cafe->loyaltyCampaigns()
                 ->where('is_active', true)
                 ->orderBy('id')
-                ->with([
-                    'rewardProduct.branches' => fn ($query) => $query->whereKey($branch->id),
-                    'rewardProduct.category',
-                    'rewardProduct.optionGroups',
-                ])
                 ->get()
-                ->filter(function (LoyaltyCampaign $campaign) use ($branch, $branchMenuId): bool {
+                ->filter(function (LoyaltyCampaign $campaign) use ($allProducts, $availableCampaignIds): bool {
                     if (!$campaign->isCurrentlyActive()) {
                         return false;
                     }
 
-                    if ($campaign->reward_type !== LoyaltyCampaign::REWARD_PRODUCT) {
-                        return true;
-                    }
-
-                    $product = $campaign->rewardProduct;
-
-                    return $product !== null
-                        && ($product->branch_id === null ? null : (int) $product->branch_id) === $branchMenuId
-                        && $product->category?->is_active === true
-                        && ($product->category->branch_id === null ? null : (int) $product->category->branch_id) === $branchMenuId
-                        && $product->isAvailableAt($branch)
-                        && !$product->optionGroups->contains(fn ($group): bool => $group->is_active && $group->min_selections > 0);
+                    return $campaign->reward_type !== LoyaltyCampaign::REWARD_PRODUCT
+                        || $allProducts->whereIn('id', $campaign->rewardProductIds())
+                            ->filter(fn (MenuProduct $product): bool => ! $product->optionGroups->contains(fn ($group): bool => $group->is_active && $group->min_selections > 0))
+                            ->isNotEmpty();
                 })
-                ->map(fn (LoyaltyCampaign $campaign): array => [
+                ->map(function (LoyaltyCampaign $campaign) use ($allProducts, $availableCampaignIds): array {
+                    $rewardProducts = $campaign->reward_type === LoyaltyCampaign::REWARD_PRODUCT
+                        ? $allProducts->whereIn('id', $campaign->rewardProductIds())
+                            ->filter(fn (MenuProduct $product): bool => ! $product->optionGroups->contains(fn ($group): bool => $group->is_active && $group->min_selections > 0))
+                            ->values()
+                        : collect();
+
+                    return [
                     'id' => $campaign->id,
                     'name' => $campaign->name,
                     'type' => $campaign->type,
@@ -182,15 +178,22 @@ class MenuController extends Controller
                         ? $campaign->requiredPoints()
                         : $campaign->requiredOrderCount(),
                     'reward_type' => $campaign->reward_type,
-                    'reward_product' => $campaign->rewardProduct?->name,
+                    'available' => in_array((int) $campaign->id, array_map('intval', $availableCampaignIds), true),
                     'reward_value_cents' => Money::toCents($campaign->reward_value),
                     'minimum_order_cents' => Money::toCents($campaign->minimum_order_total),
                     'reward_label' => $campaign->reward_type === LoyaltyCampaign::REWARD_PRODUCT
-                        ? 'Ücretsiz: '.($campaign->rewardProduct?->name ?? 'ürün')
+                        ? 'Ücretsiz ürün seçimi'
                         : ($campaign->reward_type === LoyaltyCampaign::REWARD_PERCENT
                             ? '%'.rtrim(rtrim(number_format((float) $campaign->reward_value, 2, ',', ''), '0'), ',')
                             : Money::format(Money::toCents($campaign->reward_value))),
-                ])
+                    'reward_products' => $rewardProducts->map(fn (MenuProduct $product): array => [
+                        'id' => $product->id,
+                        'name' => $product->name,
+                        'image_url' => $product->image_url,
+                        'price_cents' => Money::toCents($product->priceFor($branch)),
+                    ])->all(),
+                    ];
+                })
                 ->values()
                 ->all();
 

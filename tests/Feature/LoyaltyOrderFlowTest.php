@@ -37,6 +37,10 @@ class LoyaltyOrderFlowTest extends TestCase
             'cafe_id' => $cafe->id, 'category_id' => $category->id, 'name' => 'Kurabiye',
             'price' => '25.00', 'is_available' => true,
         ]);
+        $alternateFreeProduct = MenuProduct::query()->create([
+            'cafe_id' => $cafe->id, 'category_id' => $category->id, 'name' => 'Türk kahvesi',
+            'price' => '40.00', 'is_available' => true,
+        ]);
         $table = DiningTable::createWithToken(['branch_id' => $branch->id, 'name' => 'Masa 1', 'is_active' => true]);
         TableSession::query()->create([
             'branch_id' => $branch->id,
@@ -49,20 +53,23 @@ class LoyaltyOrderFlowTest extends TestCase
         $campaign = $cafe->loyaltyCampaigns()->create([
             'name' => '100 puana kurabiye', 'type' => LoyaltyCampaign::TYPE_POINTS, 'threshold' => 100,
             'points_required' => 100, 'reward_type' => LoyaltyCampaign::REWARD_PRODUCT,
-            'reward_product_id' => $freeProduct->id, 'reward_value' => '0.00',
+            'reward_product_ids' => [$freeProduct->id, $alternateFreeProduct->id], 'reward_value' => '0.00',
             'minimum_order_total' => '0.00', 'is_active' => true,
         ]);
 
         $menuResponse = $this->actingAs($customer)->get(route('customer.menu', $table->token()));
-        $menuResponse->assertOk()->assertSee('Ücretsiz: Kurabiye');
+        $menuResponse->assertOk()->assertSee('Ücretsiz ürün seçimi');
         preg_match('~<script type="application/json" id="menu-data">(.*?)</script>~s', $menuResponse->getContent(), $matches);
         $menuData = json_decode($matches[1] ?? '', true);
         $this->actingAs($customer)->post(route('customer.orders.store', $table->token()), [
             'session_id' => $table->openSession()->id,
             'qr_visit_id' => $menuData['qr_visit_id'] ?? null,
-            'items' => [$orderProduct->id => 1],
+            'lines' => [
+                ['product_id' => $orderProduct->id, 'quantity' => 1],
+                ['product_id' => $alternateFreeProduct->id, 'quantity' => 1, 'is_loyalty_reward' => true],
+            ],
             'loyalty_campaign_id' => $campaign->id,
-        ])->assertRedirect(route('customer.menu', $table->token()));
+        ])->assertRedirect();
 
         $order = Order::query()->firstOrFail();
         $this->assertSame('50.00', $order->total);
@@ -74,6 +81,8 @@ class LoyaltyOrderFlowTest extends TestCase
             'unit_price' => '0.00',
             'quantity' => 1,
             'line_total' => '0.00',
+            'is_loyalty_reward' => true,
+            'list_unit_price' => '40.00',
         ]);
         $this->assertDatabaseHas('loyalty_accounts', ['user_id' => $customer->id, 'points' => 0]);
         $this->assertDatabaseHas('loyalty_transactions', [
@@ -81,7 +90,7 @@ class LoyaltyOrderFlowTest extends TestCase
             'campaign_id' => $campaign->id,
             'type' => 'reward_redeemed',
             'points_delta' => -100,
-            'discount_amount' => '0.00',
+            'discount_amount' => '40.00',
         ]);
     }
 

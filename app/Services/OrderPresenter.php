@@ -41,6 +41,8 @@ class OrderPresenter
                 'unit_price_cents' => Money::toCents($item->unit_price),
                 'line_total_cents' => Money::toCents($item->line_total),
                 'line_total' => Money::formatDecimal($item->line_total),
+                'is_loyalty_reward' => (bool) $item->is_loyalty_reward,
+                'list_unit_price_cents' => $item->list_unit_price !== null ? Money::toCents($item->list_unit_price) : null,
                 'note' => $item->customer_note,
                 'options' => $item->options->map(fn ($option): array => [
                     'id' => $option->id,

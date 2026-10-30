@@ -527,7 +527,7 @@ class OperationsPanelTest extends TestCase
             'threshold' => 100,
             'points_required' => 100,
             'reward_type' => LoyaltyCampaign::REWARD_PRODUCT,
-            'reward_product_id' => $product->id,
+            'reward_product_ids' => [$product->id],
             'reward_value' => '0.00',
             'minimum_order_total' => '0.00',
             'is_active' => 1,
@@ -535,7 +535,7 @@ class OperationsPanelTest extends TestCase
 
         $campaign = LoyaltyCampaign::query()->firstOrFail();
         $this->assertSame('0.00', $campaign->reward_value);
-        $this->assertSame($product->id, $campaign->reward_product_id);
+        $this->assertSame([$product->id], $campaign->rewardProductIds());
 
         $this->actingAs($owner)->patch(route('manage.loyalty.update', $campaign), [
             'name' => '100 puana büyük kurabiye',
@@ -543,7 +543,7 @@ class OperationsPanelTest extends TestCase
             'threshold' => 100,
             'points_required' => 100,
             'reward_type' => LoyaltyCampaign::REWARD_PRODUCT,
-            'reward_product_id' => $product->id,
+            'reward_product_ids' => [$product->id],
             'reward_value' => '0.00',
             'minimum_order_total' => '0.00',
             'is_active' => 1,
@@ -552,7 +552,7 @@ class OperationsPanelTest extends TestCase
         $this->assertDatabaseHas('loyalty_campaigns', [
             'id' => $campaign->id,
             'name' => '100 puana büyük kurabiye',
-            'reward_product_id' => $product->id,
+            'reward_product_ids' => json_encode([$product->id]),
         ]);
     }
 

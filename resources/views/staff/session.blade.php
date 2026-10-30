@@ -96,7 +96,7 @@
                                 @foreach ($order->items as $item)
                                     <div>
                                         <div class="flex items-start justify-between gap-3 text-sm">
-                                            <span class="font-semibold text-ink"><span class="mr-1 text-muted">{{ $item->quantity }}×</span>{{ $item->name_snapshot }}</span>
+                                            <span class="font-semibold text-ink"><span class="mr-1 text-muted">{{ $item->quantity }}×</span>{{ $item->name_snapshot }} @if ($item->is_loyalty_reward) <span class="ml-1 rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-bold text-success">Ücretsiz · normalde {{ \App\Services\Money::formatDecimal($item->list_unit_price) }}</span> @endif</span>
                                             <span class="shrink-0 font-semibold text-ink-soft">₺{{ number_format((float) $item->line_total, 2, ',', '.') }}</span>
                                         </div>
                                         @if ($item->options->isNotEmpty())

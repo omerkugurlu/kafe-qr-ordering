@@ -29,6 +29,7 @@ class LoyaltyCampaign extends Model
         'points_required',
         'reward_type',
         'reward_product_id',
+        'reward_product_ids',
         'reward_value',
         'minimum_order_total',
         'is_active',
@@ -42,6 +43,7 @@ class LoyaltyCampaign extends Model
             'threshold' => 'integer',
             'points_required' => 'integer',
             'reward_value' => 'decimal:2',
+            'reward_product_ids' => 'array',
             'minimum_order_total' => 'decimal:2',
             'is_active' => 'boolean',
             'starts_at' => 'datetime',
@@ -79,5 +81,13 @@ class LoyaltyCampaign extends Model
     public function requiredPoints(): int
     {
         return $this->points_required > 0 ? $this->points_required : $this->threshold;
+    }
+
+    /** @return list<int> */
+    public function rewardProductIds(): array
+    {
+        $ids = $this->reward_product_ids ?? ($this->reward_product_id ? [$this->reward_product_id] : []);
+
+        return array_values(array_unique(array_map('intval', $ids)));
     }
 }

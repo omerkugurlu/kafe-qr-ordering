@@ -80,6 +80,13 @@ function initMenu(root, data) {
     const productsById = (id) => products.get(Number(id));
     const cartKey = `skykite.cart.${data.table.token}`;
     const noteKey = `skykite.note.${data.table.token}`;
+    const loyaltyKey = `skykite.loyalty.${data.table.token}`;
+    const loyalty = data.loyalty ?? null;
+    let loyaltyCampaignId = Number(localStorage.getItem(loyaltyKey)) || null;
+    if (loyaltyCampaignId !== null && !loyalty?.campaigns.some((campaign) => Number(campaign.id) === loyaltyCampaignId)) {
+        loyaltyCampaignId = null;
+        localStorage.removeItem(loyaltyKey);
+    }
     const storedCart = loadCart();
     let cart = storedCart;
     let orderNote = localStorage.getItem(noteKey) ?? '';
@@ -88,8 +95,6 @@ function initMenu(root, data) {
     let orderingAvailable = data.ordering_available === true && qrSessionId !== null && qrVisitId !== null;
     let orderWaitingForWaiter = false;
     let coupon = null;
-    let loyaltyCampaignId = null;
-    const loyalty = data.loyalty ?? null;
     let activeCategory = 'all';
     let search = '';
     let sheetState = null;
@@ -149,9 +154,13 @@ function initMenu(root, data) {
                         quantity: Math.max(1, Math.min(99, Number(line.quantity) || 1)),
                         optionIds,
                         note: typeof line.note === 'string' ? line.note.slice(0, 140) : '',
+                        isLoyaltyReward: line.isLoyaltyReward === true,
                     };
                 })
-                .filter(Boolean);
+                .filter(Boolean)
+                .filter((line) => !line.isLoyaltyReward || (activeLoyaltyCampaign()?.reward_type === 'product'
+                    && activeLoyaltyCampaign().reward_products.some((product) => Number(product.id) === line.productId)
+                    && line.quantity === 1 && line.optionIds.length === 0));
         } catch {
             return [];
         }
@@ -174,7 +183,7 @@ function initMenu(root, data) {
     }
 
     function lineKey(line) {
-        return `${line.productId}:${[...line.optionIds].sort((a, b) => a - b).join(',')}:${(line.note ?? '').trim()}`;
+        return `${line.productId}:${[...line.optionIds].sort((a, b) => a - b).join(',')}:${(line.note ?? '').trim()}:${line.isLoyaltyReward ? 'reward' : 'paid'}`;
     }
 
     function optionDelta(optionIds) {
@@ -182,6 +191,7 @@ function initMenu(root, data) {
     }
 
     function lineUnit(line) {
+        if (line.isLoyaltyReward) return 0;
         const product = productsById(line.productId);
         return (product?.price_cents ?? 0) + optionDelta(line.optionIds);
     }
@@ -191,7 +201,7 @@ function initMenu(root, data) {
     }
 
     function cartSubtotal() {
-        return cart.reduce((sum, line) => sum + lineTotal(line), 0);
+        return cart.reduce((sum, line) => sum + (line.isLoyaltyReward ? 0 : lineTotal(line)), 0);
     }
 
     function effectiveDiscount() {
@@ -208,6 +218,11 @@ function initMenu(root, data) {
 
     function activeLoyaltyCampaign() {
         return loyalty?.campaigns.find((campaign) => Number(campaign.id) === Number(loyaltyCampaignId)) ?? null;
+    }
+
+    function persistLoyaltyCampaign() {
+        if (loyaltyCampaignId === null) localStorage.removeItem(loyaltyKey);
+        else localStorage.setItem(loyaltyKey, String(loyaltyCampaignId));
     }
 
     function loyaltyDiscount() {
@@ -251,6 +266,7 @@ function initMenu(root, data) {
             quantity: Math.max(1, Math.min(99, quantity)),
             optionIds: [...new Set(optionIds.map(Number))].sort((a, b) => a - b),
             note: String(note ?? '').slice(0, 140).trim(),
+            isLoyaltyReward: false,
         };
         const key = lineKey(normalized);
         const existing = cart.find((line) => lineKey(line) === key);
@@ -268,6 +284,19 @@ function initMenu(root, data) {
         return true;
     }
 
+    function addLoyaltyRewardProduct(productId) {
+        const campaign = activeLoyaltyCampaign();
+        const product = productsById(productId);
+        if (!campaign || campaign.reward_type !== 'product'
+            || !campaign.reward_products.some((item) => Number(item.id) === Number(productId)) || !product) return;
+
+        cart = cart.filter((line) => !line.isLoyaltyReward);
+        cart.push({ productId: Number(productId), quantity: 1, optionIds: [], note: '', isLoyaltyReward: true });
+        persistCart();
+        renderCart();
+        toast(`${product.name} · ${strings.loyalty_product_reward}`, 'success');
+    }
+
     function removeLine(key) {
         cart = cart.filter((line) => lineKey(line) !== key);
         persistCart();
@@ -282,6 +311,7 @@ function initMenu(root, data) {
             return;
         }
 
+        if (line.isLoyaltyReward && delta > 0) return;
         line.quantity += delta;
 
         if (line.quantity <= 0) {
@@ -780,9 +810,9 @@ function initMenu(root, data) {
                                 <div class="flex items-center gap-1 rounded-full border border-line bg-cream p-0.5">
                                     <button type="button" class="grid size-7 place-items-center rounded-full text-ink transition hover:bg-paper" data-cart-change="${key}" data-delta="-1" aria-label="${escapeHtml(strings.remove)}">−</button>
                                     <span class="min-w-6 text-center text-xs font-bold">${line.quantity}</span>
-                                    <button type="button" class="grid size-7 place-items-center rounded-full text-ink transition hover:bg-paper" data-cart-change="${key}" data-delta="1" aria-label="${escapeHtml(strings.add)}">+</button>
+                                    ${line.isLoyaltyReward ? '' : `<button type="button" class="grid size-7 place-items-center rounded-full text-ink transition hover:bg-paper" data-cart-change="${key}" data-delta="1" aria-label="${escapeHtml(strings.add)}">+</button>`}
                                 </div>
-                                <span class="text-sm font-bold text-forest">${money(lineTotal(line))}</span>
+                                <span class="text-sm font-bold text-forest">${line.isLoyaltyReward ? `<s class="mr-1 text-xs text-muted">${money(productsById(line.productId)?.price_cents ?? 0)}</s>` : ''}${money(lineTotal(line))}</span>
                             </div>
                         </div>
                     </div>
@@ -831,11 +861,11 @@ function initMenu(root, data) {
         }
 
         if (checkout) {
-            checkout.disabled = cart.length === 0 || !orderingAvailable;
+            checkout.disabled = cart.length === 0 || !orderingAvailable || (activeLoyaltyCampaign()?.reward_type === 'product' && !cart.some((line) => line.isLoyaltyReward));
         }
 
         document.querySelectorAll('[data-confirm-order]').forEach((button) => {
-            button.disabled = cart.length === 0 || !orderingAvailable;
+            button.disabled = cart.length === 0 || !orderingAvailable || (activeLoyaltyCampaign()?.reward_type === 'product' && !cart.some((line) => line.isLoyaltyReward));
         });
 
         root.querySelectorAll('[data-quick-add], [data-add-to-cart], [data-upsell-add]').forEach((button) => {
@@ -903,9 +933,19 @@ function initMenu(root, data) {
             const countLabel = campaign.type === 'points'
                 ? strings.loyalty_points.replace(':points', String(loyalty.points))
                 : strings.loyalty_orders.replace(':count', String(loyalty.completed_orders));
+            const rewardChooser = selected && campaign.reward_type === 'product'
+                ? `<div class="mt-2 grid grid-cols-2 gap-2">${campaign.reward_products.map((product) => {
+                    const chosen = cart.some((line) => line.isLoyaltyReward && line.productId === Number(product.id));
+                    const image = product.image_url
+                        ? `<img src="${escapeHtml(product.image_url)}" alt="" class="size-10 rounded-lg object-cover" loading="lazy">`
+                        : `<span class="grid size-10 place-items-center rounded-lg bg-cream text-forest">${coffeeFallback}</span>`;
+                    return `<button type="button" data-loyalty-product-id="${product.id}" class="flex min-w-0 items-center gap-2 rounded-xl border ${chosen ? 'border-forest bg-paper' : 'border-line bg-paper/60'} p-2 text-left transition hover:border-forest/40">${image}<span class="min-w-0 flex-1"><span class="block truncate text-[11px] font-bold text-ink">${escapeHtml(product.name)}</span><span class="block text-[10px] font-bold text-success">${money(0)} · ${escapeHtml(strings.loyalty_free)} <s class="ml-1 font-medium text-muted">${money(product.price_cents)}</s></span></span></button>`;
+                }).join('')}</div><p class="mt-1 text-[10px] font-medium text-muted">${escapeHtml(strings.loyalty_choose_product)} ${escapeHtml(strings.loyalty_product_cart_note)}</p>`
+                : '';
 
             return `
-                <button type="button" data-loyalty-id="${campaign.id}" ${eligible ? '' : 'disabled'} class="flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left transition ${selected ? 'border-forest bg-paper shadow-soft' : 'border-line bg-paper/60'} ${eligible ? 'hover:border-forest/40 hover:bg-paper' : 'cursor-not-allowed opacity-60'}">
+                <div class="rounded-xl ${selected ? 'border border-forest bg-paper p-2 shadow-soft' : ''}">
+                <button type="button" data-loyalty-id="${campaign.id}" ${eligible || selected ? '' : 'disabled'} class="flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left transition ${selected ? 'border-forest bg-paper shadow-soft' : 'border-line bg-paper/60'} ${eligible ? 'hover:border-forest/40 hover:bg-paper' : 'cursor-not-allowed opacity-60'}">
                     <span class="grid size-8 shrink-0 place-items-center rounded-full ${selected ? 'bg-forest text-white' : 'bg-cream text-forest'}">
                         ${selected
                             ? '<svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m5 12 4.5 4.5L19 7"/></svg>'
@@ -922,6 +962,7 @@ function initMenu(root, data) {
                         </span>
                     </span>
                 </button>
+                ${rewardChooser}</div>
             `;
         }).join('');
     }
@@ -1031,8 +1072,8 @@ function initMenu(root, data) {
                             <span class="grid size-7 shrink-0 place-items-center rounded-full bg-forest text-[11px] font-bold text-white">${line.quantity}</span>
                             <div class="min-w-0 flex-1">
                                 <div class="flex items-start justify-between gap-3">
-                                    <p class="text-sm font-bold text-ink">${escapeHtml(product?.name ?? '')}</p>
-                                    <p class="shrink-0 text-sm font-bold text-ink">${money(lineTotal(line))}</p>
+                                    <p class="text-sm font-bold text-ink">${escapeHtml(product?.name ?? '')}${line.isLoyaltyReward ? ` <span class="ml-1 rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-bold text-success">${escapeHtml(strings.loyalty_free)}</span>` : ''}</p>
+                                    <p class="shrink-0 text-right text-sm font-bold text-ink">${line.isLoyaltyReward ? `<s class="block text-[10px] font-medium text-muted">${money(product?.price_cents ?? 0)}</s>` : ''}${money(lineTotal(line))}</p>
                                 </div>
                                 ${options ? `<p class="mt-0.5 text-[11px] text-muted">${escapeHtml(options)}</p>` : ''}
                                 ${line.note ? `<p class="mt-0.5 text-[11px] italic text-muted">“${escapeHtml(line.note)}”</p>` : ''}
@@ -1069,6 +1110,11 @@ function initMenu(root, data) {
             return;
         }
 
+        if (activeLoyaltyCampaign()?.reward_type === 'product' && !cart.some((line) => line.isLoyaltyReward)) {
+            toast(strings.loyalty_choose_product, 'info');
+            return;
+        }
+
         closeDrawer('cart');
         renderConfirm();
         window.setTimeout(() => openSheet('confirm'), 200);
@@ -1079,6 +1125,11 @@ function initMenu(root, data) {
             if (!orderingAvailable) {
                 toast(strings.ordering_unavailable, 'info');
             }
+            return;
+        }
+
+        if (activeLoyaltyCampaign()?.reward_type === 'product' && !cart.some((line) => line.isLoyaltyReward)) {
+            toast(strings.loyalty_choose_product, 'info');
             return;
         }
 
@@ -1098,6 +1149,7 @@ function initMenu(root, data) {
                         quantity: line.quantity,
                         option_ids: line.optionIds,
                         note: line.note || null,
+                        is_loyalty_reward: line.isLoyaltyReward === true,
                     })),
                     customer_note: orderNote.trim() || null,
                     coupon_code: coupon?.code ?? null,
@@ -1367,7 +1419,11 @@ function initMenu(root, data) {
             }
 
             const id = Number(loyaltyButton.dataset.loyaltyId);
+            const previousCampaignId = Number(loyaltyCampaignId) || null;
             loyaltyCampaignId = Number(loyaltyCampaignId) === id ? null : id;
+            if (loyaltyCampaignId !== previousCampaignId) {
+                cart = cart.filter((line) => !line.isLoyaltyReward);
+            }
 
             if (loyaltyCampaignId !== null) {
                 coupon = null;
@@ -1385,7 +1441,16 @@ function initMenu(root, data) {
                 }
             }
 
+            persistLoyaltyCampaign();
+            persistCart();
             renderCart();
+            return;
+        }
+
+        const rewardProductButton = event.target.closest('[data-loyalty-product-id]');
+        if (rewardProductButton) {
+            event.preventDefault();
+            addLoyaltyRewardProduct(Number(rewardProductButton.dataset.loyaltyProductId));
             return;
         }
 
@@ -1516,6 +1581,10 @@ function initMenu(root, data) {
                     discount_cents: response.discount_cents,
                     min_subtotal_cents: response.min_subtotal_cents,
                 };
+                loyaltyCampaignId = null;
+                cart = cart.filter((line) => !line.isLoyaltyReward);
+                persistLoyaltyCampaign();
+                persistCart();
 
                 if (message) {
                     message.hidden = true;

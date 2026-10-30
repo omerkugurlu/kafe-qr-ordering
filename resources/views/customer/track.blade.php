@@ -109,7 +109,7 @@
                                 <span class="grid size-7 shrink-0 place-items-center rounded-full bg-forest text-[11px] font-bold text-white">{{ $item['quantity'] }}</span>
                                 <div class="min-w-0 flex-1">
                                     <div class="flex items-start justify-between gap-3">
-                                        <p class="text-sm font-bold text-ink">{{ $item['name'] }}</p>
+                                        <p class="text-sm font-bold text-ink">{{ $item['name'] }} @if (! empty($item['is_loyalty_reward'])) <span class="ml-1 rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-bold text-success">Ücretsiz</span> @endif</p>
                                         <p class="shrink-0 text-sm font-bold text-ink">{{ $item['line_total'] }}</p>
                                     </div>
                                     @if (! empty($item['options']))

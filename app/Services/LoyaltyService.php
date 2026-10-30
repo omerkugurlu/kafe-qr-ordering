@@ -6,7 +6,6 @@ use App\Models\Cafe;
 use App\Models\LoyaltyAccount;
 use App\Models\LoyaltyCampaign;
 use App\Models\LoyaltyTransaction;
-use App\Models\MenuProduct;
 use App\Models\Order;
 use App\Models\User;
 use Illuminate\Support\Collection;
@@ -65,23 +64,32 @@ class LoyaltyService
             throw ValidationException::withMessages(['loyalty_campaign_id' => 'Sipariş tutarı bu ödül için gereken minimum tutarın altında.']);
         }
 
-        $freeProduct = null;
+        $rewardItem = null;
+        $rewardValueCents = 0;
         if ($lockedCampaign->reward_type === LoyaltyCampaign::REWARD_PRODUCT) {
-            $branch = $order->branch;
-            $menuBranchId = $branch->uses_shared_menu ? null : $branch->id;
-            $freeProduct = MenuProduct::query()
-                ->with(['branches' => fn ($query) => $query->whereKey($branch->id)])
-                ->whereKey($lockedCampaign->reward_product_id)
-                ->where('cafe_id', $cafe->id)
-                ->where('branch_id', $menuBranchId)
-                ->where('is_available', true)
-                ->whereHas('category', fn ($query) => $query->where('is_active', true)->where('branch_id', $menuBranchId))
-                ->whereDoesntHave('optionGroups', fn ($query) => $query->where('is_active', true)->where('min_selections', '>', 0))
-                ->first();
-
-            if ($freeProduct === null || ! $freeProduct->isAvailableAt($branch)) {
-                throw ValidationException::withMessages(['loyalty_campaign_id' => 'Bu ücretsiz ürün bu şubede şu anda sunulmuyor.']);
+            if ($lockedCampaign->type !== LoyaltyCampaign::TYPE_POINTS) {
+                throw ValidationException::withMessages(['loyalty_campaign_id' => 'Ücretsiz ürün ödülü puan kampanyalarında kullanılabilir.']);
             }
+
+            $rewardItems = $order->items()->where('is_loyalty_reward', true)->with(['options', 'product.category'])->get();
+            $rewardItem = $rewardItems->first();
+            $allowedProductIds = $lockedCampaign->rewardProductIds();
+            $product = $rewardItem?->product;
+            $branch = $order->branch;
+            $expectedMenuBranchId = $branch->uses_shared_menu ? null : (int) $branch->id;
+
+            if ($rewardItems->count() !== 1 || $rewardItem->quantity !== 1 || $rewardItem->options->isNotEmpty()
+                || ! in_array((int) $rewardItem->menu_product_id, $allowedProductIds, true)
+                || $rewardItem->unit_price !== '0.00' || $rewardItem->list_unit_price === null
+                || $product === null || ! $product->isAvailableAt($branch)
+                || (int) $product->category?->is_active !== 1
+                || ($product->branch_id === null ? null : (int) $product->branch_id) !== $expectedMenuBranchId
+                || $product->optionGroups()->where('is_active', true)->where('min_selections', '>', 0)->exists()
+                || self::moneyToCents((string) $rewardItem->list_unit_price) !== Money::toCents($product->priceFor($branch))) {
+                throw ValidationException::withMessages(['loyalty_campaign_id' => 'Ücretsiz ürün seçimi doğrulanamadı. Menüden kampanyaya uygun bir ürün seçin.']);
+            }
+
+            $rewardValueCents = self::moneyToCents((string) $rewardItem->list_unit_price);
         }
 
         $ordersDelta = 0;
@@ -109,19 +117,10 @@ class LoyaltyService
             $pointsDelta = -$requiredPoints;
         }
 
-        $rewardValueCents = self::moneyToCents((string) $lockedCampaign->reward_value);
+        $configuredRewardValueCents = self::moneyToCents((string) $lockedCampaign->reward_value);
         $discountCents = $lockedCampaign->reward_type === LoyaltyCampaign::REWARD_PERCENT
-            ? intdiv($subtotalCents * $rewardValueCents, 10000)
-            : ($lockedCampaign->reward_type === LoyaltyCampaign::REWARD_FIXED ? min($subtotalCents, $rewardValueCents) : 0);
-        if ($freeProduct !== null) {
-            $order->items()->create([
-                'menu_product_id' => $freeProduct->id,
-                'name_snapshot' => $freeProduct->name,
-                'unit_price' => '0.00',
-                'quantity' => 1,
-                'line_total' => '0.00',
-            ]);
-        }
+            ? intdiv($subtotalCents * $configuredRewardValueCents, 10000)
+            : ($lockedCampaign->reward_type === LoyaltyCampaign::REWARD_FIXED ? min($subtotalCents, $configuredRewardValueCents) : 0);
         $account->forceFill(['points' => $account->points + $pointsDelta])->save();
         LoyaltyTransaction::query()->create([
             'cafe_id' => $cafe->id,
@@ -132,8 +131,10 @@ class LoyaltyService
             'type' => 'reward_redeemed',
             'points_delta' => $pointsDelta,
             'orders_delta' => $ordersDelta,
-            'discount_amount' => self::centsToMoney($discountCents),
-            'description' => 'Sipariş ödülü kullanıldı: '.$lockedCampaign->name,
+            'discount_amount' => self::centsToMoney($lockedCampaign->reward_type === LoyaltyCampaign::REWARD_PRODUCT ? $rewardValueCents : $discountCents),
+            'description' => $lockedCampaign->reward_type === LoyaltyCampaign::REWARD_PRODUCT
+                ? 'Ücretsiz ürün ödülü kullanıldı: '.$lockedCampaign->name.' · '.$rewardItem->name_snapshot
+                : 'Sipariş ödülü kullanıldı: '.$lockedCampaign->name,
         ]);
 
         return $discountCents;
