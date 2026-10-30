@@ -8,7 +8,6 @@
         $totalProducts = $categories->sum('products_count');
         $otherBranches = auth()->user()->cafe->branches()->where('id', '!=', $branch->id)->orderBy('name')->get(['id', 'name']);
         $activeCategories = $categories->where('is_active', true);
-        $recommendationProducts = $suggestionPool->where('is_available', true)->whereIn('category_id', $activeCategories->pluck('id'));
     @endphp
 
     @if ($errors->any())
