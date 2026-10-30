@@ -197,7 +197,9 @@
                                             </div>
 
                                             @foreach ($product->optionGroups as $group)
-                                                @php($availableOptions = $group->options->where('is_available', true))
+                                                @php
+                                                    $availableOptions = $group->options->where('is_available', true);
+                                                @endphp
                                                 @if ($availableOptions->isNotEmpty())
                                                     <fieldset class="mt-3 rounded-xl bg-cream/70 p-3">
                                                         <legend class="mb-2 flex w-full items-center justify-between gap-2 text-xs font-bold text-ink">
@@ -292,8 +294,10 @@
                     @csrf
                     <fieldset class="space-y-2">
                         <legend class="label">Ödenecek ürünler</legend>
-                        @php($payableOrders = $session->orders->whereIn('status', ['accepted', 'ready', 'served']))
-                        @php($hasPayableItem = collect($itemDueCents)->contains(fn ($balance) => $balance > 0))
+                        @php
+                            $payableOrders = $session->orders->whereIn('status', ['accepted', 'ready', 'served']);
+                            $hasPayableItem = collect($itemDueCents)->contains(fn ($balance) => $balance > 0);
+                        @endphp
                         @if (! $hasPayableItem)
                             <p class="rounded-2xl border border-dashed border-line px-4 py-6 text-center text-sm text-muted">Ödeme alınabilecek ürün yok.</p>
                         @else
