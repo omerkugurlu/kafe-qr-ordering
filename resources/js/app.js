@@ -69,7 +69,9 @@ document.querySelectorAll('[data-featured-picker]').forEach((picker) => {
         });
         options?.querySelectorAll('[data-featured-option]').forEach((option) => {
             const name = option.querySelector('[data-featured-name]')?.textContent?.trim().toLocaleLowerCase('tr-TR') ?? '';
-            option.hidden = (categoryId !== 'all' && option.dataset.categoryId !== categoryId) || !name.includes(query);
+            const hidden = (categoryId !== 'all' && option.dataset.categoryId !== categoryId) || !name.includes(query);
+            option.hidden = hidden;
+            option.style.display = hidden ? 'none' : '';
         });
     };
 
@@ -139,7 +141,9 @@ const setupSuggestionPicker = (picker, options) => {
         options.querySelectorAll('[data-suggestion-option]').forEach((option) => {
             const name = option.querySelector('[data-suggestion-product-name]')?.textContent?.trim().toLocaleLowerCase('tr-TR') ?? '';
             const categoryMatches = categoryId !== '' && option.dataset.suggestionCategoryId === categoryId;
-            option.hidden = !categoryMatches || !name.includes(query);
+            const hidden = !categoryMatches || !name.includes(query);
+            option.hidden = hidden;
+            option.style.display = hidden ? 'none' : '';
             if (!option.hidden) visibleCount += 1;
         });
         let emptyState = options.querySelector('[data-suggestion-empty]');
