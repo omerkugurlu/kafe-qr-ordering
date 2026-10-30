@@ -216,7 +216,9 @@ class BranchController extends Controller
 
         /** @var array<int, int> $productIdMap */
         $productIdMap = [];
-        /** @var array<int, array<int, int>> $pendingSuggestions */
+        /** @var array<int, int> $categoryIdMap */
+        $categoryIdMap = [];
+        /** @var array<int, array<int, int|string>> $pendingSuggestions */
         $pendingSuggestions = [];
 
         foreach ($categories as $category) {
@@ -228,6 +230,7 @@ class BranchController extends Controller
                 'sort_order' => $category->sort_order,
                 'is_active' => $category->is_active,
             ]);
+            $categoryIdMap[$category->id] = $categoryCopy->id;
 
             foreach ($category->products as $product) {
                 $productCopy = $categoryCopy->products()->create([
@@ -244,9 +247,7 @@ class BranchController extends Controller
                 ]);
 
                 $productIdMap[$product->id] = $productCopy->id;
-                $pendingSuggestions[$productCopy->id] = collect($product->suggestions ?? [])
-                    ->map(fn ($id): int => (int) $id)
-                    ->all();
+                $pendingSuggestions[$productCopy->id] = $product->suggestions ?? [];
 
                 if (method_exists($product, 'optionGroups') && method_exists($productCopy, 'optionGroups')) {
                     foreach ($product->optionGroups as $group) {
@@ -269,10 +270,22 @@ class BranchController extends Controller
             }
         }
 
-        foreach ($pendingSuggestions as $copyId => $sourceIds) {
-            $mapped = collect($sourceIds)
-                ->map(fn (int $id): ?int => $productIdMap[$id] ?? null)
-                ->filter(fn (?int $id): bool => $id !== null)
+        foreach ($pendingSuggestions as $copyId => $sourceValues) {
+            $mapped = collect($sourceValues)
+                ->map(function ($value) use ($productIdMap, $categoryIdMap): int|string|null {
+                    if (is_int($value) || (is_string($value) && ctype_digit($value))) {
+                        return $productIdMap[(int) $value] ?? null;
+                    }
+
+                    if (is_string($value) && preg_match('/^category:(\\d+)$/', $value, $matches) === 1) {
+                        $categoryId = $categoryIdMap[(int) $matches[1]] ?? null;
+
+                        return $categoryId !== null ? 'category:'.$categoryId : null;
+                    }
+
+                    return null;
+                })
+                ->filter(fn (int|string|null $id): bool => $id !== null)
                 ->values()
                 ->all();
 

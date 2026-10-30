@@ -105,12 +105,7 @@ class MenuProduct extends Model
      */
     public function suggestedProducts(?Branch $branch = null): Collection
     {
-        $ids = collect($this->suggestions ?? [])
-            ->map(fn ($id): int => (int) $id)
-            ->filter(fn (int $id): bool => $id > 0 && $id !== $this->id)
-            ->unique()
-            ->take(6)
-            ->values();
+        $ids = $this->suggestedProductIds();
 
         if ($ids->isEmpty()) {
             return collect();
@@ -128,6 +123,29 @@ class MenuProduct extends Model
 
         return $products
             ->sortBy(fn (MenuProduct $product): int => (int) $ids->search($product->id))
+            ->values();
+    }
+
+    /** @return Collection<int, int> */
+    public function suggestedProductIds(): Collection
+    {
+        return collect($this->suggestions ?? [])
+            ->filter(fn ($value): bool => is_int($value) || (is_string($value) && ctype_digit($value)))
+            ->map(fn ($id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0 && $id !== $this->id)
+            ->unique()
+            ->take(6)
+            ->values();
+    }
+
+    /** @return Collection<int, int> */
+    public function suggestedCategoryIds(): Collection
+    {
+        return collect($this->suggestions ?? [])
+            ->filter(fn ($value): bool => is_string($value) && preg_match('/^category:(\\d+)$/', $value) === 1)
+            ->map(fn (string $value): int => (int) substr($value, strlen('category:')))
+            ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
             ->values();
     }
 }

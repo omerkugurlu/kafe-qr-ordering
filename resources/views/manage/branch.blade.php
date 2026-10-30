@@ -60,16 +60,26 @@
     </div>
 
     @if ($categories->isNotEmpty())
-        <nav aria-label="Menü kategorileri" class="mt-4 flex gap-2 overflow-x-auto rounded-2xl border border-line bg-paper p-3">
-            @foreach ($categories as $categoryOption)
-                <a
-                    href="{{ route('manage.branches.show', ['branch' => $branch, 'category_id' => $categoryOption->id]) }}"
-                    @class(['chip shrink-0', 'chip-active' => $selectedCategory?->id === $categoryOption->id])
-                >
-                    {{ $categoryOption->name }} <span class="ml-1 text-muted">{{ $categoryOption->products_count }}</span>
-                </a>
-            @endforeach
-        </nav>
+        <div class="mt-4 flex min-w-0 items-center gap-2 rounded-2xl border border-line bg-paper p-3">
+            <button type="button" data-category-scroll="left" aria-label="Önceki kategoriler" class="btn btn-secondary btn-sm shrink-0 px-2" hidden>
+                <x-ui.icon name="arrow-left" class="size-4" />
+            </button>
+            <nav data-category-strip aria-label="Menü kategorileri" class="flex min-w-0 flex-1 gap-2 overflow-x-auto scroll-smooth py-0.5">
+                @foreach ($categories as $categoryOption)
+                    <a
+                        href="{{ route('manage.branches.show', ['branch' => $branch, 'category_id' => $categoryOption->id]) }}"
+                        data-category-option
+                        @if ($selectedCategory?->id === $categoryOption->id) aria-current="page" @endif
+                        @class(['chip shrink-0', 'chip-active' => $selectedCategory?->id === $categoryOption->id])
+                    >
+                        {{ $categoryOption->name }} <span class="ml-1 text-muted">{{ $categoryOption->products_count }}</span>
+                    </a>
+                @endforeach
+            </nav>
+            <button type="button" data-category-scroll="right" aria-label="Sonraki kategoriler" class="btn btn-secondary btn-sm shrink-0 px-2" hidden>
+                <x-ui.icon name="arrow-right" class="size-4" />
+            </button>
+        </div>
     @endif
 
     @if ($suggestionPool->isNotEmpty())
@@ -78,6 +88,16 @@
                 <label data-suggestion-option data-suggestion-product-id="{{ $suggestion->id }}" class="flex min-h-8 items-center gap-2 rounded-lg px-1.5 text-[11px] font-semibold text-ink hover:bg-cream/70">
                     <input type="checkbox" value="{{ $suggestion->id }}" class="size-3.5 accent-forest">
                     <span data-suggestion-product-name class="truncate">{{ $suggestion->name }}</span>
+                </label>
+            @endforeach
+        </template>
+    @endif
+    @if ($categories->isNotEmpty())
+        <template id="menu-suggestion-category-options">
+            @foreach ($categories as $suggestionCategory)
+                <label data-suggestion-category-option class="flex min-h-8 items-center gap-2 rounded-lg px-1.5 text-[11px] font-semibold text-ink hover:bg-cream/70">
+                    <input type="checkbox" value="{{ $suggestionCategory->id }}" class="size-3.5 accent-forest">
+                    <span data-suggestion-category-name class="truncate">{{ $suggestionCategory->name }}</span>
                 </label>
             @endforeach
         </template>
@@ -133,7 +153,8 @@
 
                     <div class="divide-y divide-line">
                         @forelse ($category->products as $product)
-                            @php($selectedSuggestions = collect($product->suggestions ?? [])->map(fn ($id) => (int) $id)->all())
+                            @php($selectedSuggestions = $product->suggestedProductIds()->all())
+                            @php($selectedSuggestionCategories = $product->suggestedCategoryIds()->all())
                             <div class="p-4 sm:p-5" data-menu-product-id="{{ $product->id }}">
                                 <div class="flex flex-wrap items-start gap-3">
                                     <div class="relative size-16 shrink-0 overflow-hidden rounded-xl border border-line bg-cream">
@@ -168,7 +189,7 @@
                                         </p>
                                     </div>
 
-                                    <details class="group w-full sm:w-auto" data-product-edit-details data-product-id="{{ $product->id }}">
+                                    <details class="group w-full sm:w-auto" data-recommendation-details data-product-edit-details data-product-id="{{ $product->id }}">
                                         <summary class="btn btn-secondary btn-sm w-full cursor-pointer list-none">
                                             <x-ui.icon name="pencil" class="size-4" /> Ürünü düzenle
                                         </summary>
@@ -229,7 +250,7 @@
                                                 </div>
 
                                                 <div class="sm:col-span-2">
-                                                    <span class="label">Birlikte önerilecek ürünler (upsell)</span>
+                                                    <span class="label">Bu ürün sepete eklenince önerilecek ürünler</span>
                                                     @if ($suggestionPool->where('id', '!=', $product->id)->isEmpty())
                                                         <p class="rounded-xl border border-dashed border-line px-3 py-3 text-[11px] font-medium text-muted">Öneri için başka ürün ekleyin.</p>
                                                     @else
@@ -240,6 +261,17 @@
                                                             </div>
                                                         </div>
                                                     @endif
+                                                </div>
+
+                                                <div class="sm:col-span-2">
+                                                    <span class="label">Bu ürün, hangi kategoriden ürün eklenince önerilsin?</span>
+                                                    <div data-suggestion-category-picker data-selected-categories="{{ implode(',', $selectedSuggestionCategories) }}" class="mt-1 rounded-xl border border-line bg-paper p-2">
+                                                        <label class="block"><span class="sr-only">Tetikleyici kategori ara</span><input type="search" data-suggestion-category-search autocomplete="off" class="input py-2 text-xs" placeholder="Kategori adına göre ara"></label>
+                                                        <div data-suggestion-category-options class="mt-1 grid max-h-32 gap-1 overflow-y-auto sm:grid-cols-2">
+                                                            <p class="col-span-full py-2 text-[11px] font-medium text-muted">Kategori listesini görüntülemek için düzenlemeyi açın.</p>
+                                                        </div>
+                                                    </div>
+                                                    <p class="mt-1 text-[10px] leading-4 text-muted">Seçilen kategorilerden herhangi bir ürün sepete eklenince bu ürün önerilir.</p>
                                                 </div>
 
                                                 <div class="sm:col-span-2 flex flex-wrap items-center justify-between gap-2">
@@ -357,6 +389,28 @@
                         <label class="flex min-h-9 items-center gap-2 text-xs font-semibold text-ink">
                             <input type="checkbox" name="is_featured" value="1" @checked(old('is_featured')) class="size-4 accent-forest"> Öne çıkan
                         </label>
+                        @if ($suggestionPool->isNotEmpty())
+                            <details data-recommendation-details class="rounded-xl border border-line bg-paper p-3">
+                                <summary class="cursor-pointer text-xs font-bold text-ink">İyi gider önerilerini ayarla</summary>
+                                <div class="mt-3 space-y-3">
+                                    <div data-suggestion-picker data-selected-suggestions="{{ implode(',', old('suggestions', [])) }}">
+                                        <label class="label" for="new-product-suggestion-search">Bu ürün sepete eklenince öner</label>
+                                        <input id="new-product-suggestion-search" type="search" data-suggestion-search autocomplete="off" class="input py-2 text-xs" placeholder="Ürün adına göre ara">
+                                        <div data-suggestion-options class="mt-1 grid max-h-32 gap-1 overflow-y-auto sm:grid-cols-2">
+                                            <p class="col-span-full py-2 text-[11px] font-medium text-muted">Ürün listesini görüntülemek için ayarları açın.</p>
+                                        </div>
+                                    </div>
+                                    <div data-suggestion-category-picker data-selected-categories="{{ implode(',', old('suggestion_category_ids', [])) }}">
+                                        <label class="label" for="new-product-category-search">Hangi kategoriden ürün eklenince önerilsin?</label>
+                                        <input id="new-product-category-search" type="search" data-suggestion-category-search autocomplete="off" class="input py-2 text-xs" placeholder="Kategori adına göre ara">
+                                        <div data-suggestion-category-options class="mt-1 grid max-h-32 gap-1 overflow-y-auto sm:grid-cols-2">
+                                            <p class="col-span-full py-2 text-[11px] font-medium text-muted">Kategori listesini görüntülemek için ayarları açın.</p>
+                                        </div>
+                                    </div>
+                                    <p class="text-[10px] leading-4 text-muted">Önerilen ürünler müşteriye gösterilir; müşteri tek dokunuşla sepete ekleyebilir.</p>
+                                </div>
+                            </details>
+                        @endif
                         <button class="btn btn-primary btn-sm w-full">
                             <x-ui.icon name="plus" class="size-3.5" /> Ürün ekle
                         </button>

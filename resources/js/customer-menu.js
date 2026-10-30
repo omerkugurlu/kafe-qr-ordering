@@ -715,13 +715,21 @@ function initMenu(root, data) {
         toast(`${product.name} · ${strings.cart_added}`, 'success');
         closeSheet('product');
 
-        if (product.suggestions.length > 0) {
+        if (suggestionIdsFor(product).length > 0) {
             window.setTimeout(() => openUpsell(product), 220);
         }
     }
 
+    function suggestionIdsFor(product) {
+        const alreadyInCart = new Set(cart.filter((line) => !line.isLoyaltyReward).map((line) => Number(line.productId)));
+
+        return [...new Set([...(product.suggestions ?? []), ...(product.category_suggestions ?? [])]
+            .map(Number)
+            .filter((id) => id > 0 && id !== Number(product.id) && !alreadyInCart.has(id)))];
+    }
+
     function openUpsell(product) {
-        const suggestions = product.suggestions
+        const suggestions = suggestionIdsFor(product)
             .map((id) => productsById(id))
             .filter(Boolean);
 
@@ -1303,7 +1311,7 @@ function initMenu(root, data) {
             }
             toast(`${product.name} · ${strings.cart_added}`, 'success');
 
-            if (product.suggestions.length > 0) {
+            if (suggestionIdsFor(product).length > 0) {
                 window.setTimeout(() => openUpsell(product), 220);
             }
             return;

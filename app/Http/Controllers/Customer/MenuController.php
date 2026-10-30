@@ -84,13 +84,19 @@ class MenuController extends Controller
         $allProducts = $categories->flatMap(fn ($category) => $category->products)->values();
         $productsById = $allProducts->keyBy('id');
         $categoryNames = $categories->pluck('name', 'id');
+        $productsSuggestedByCategory = [];
+        foreach ($allProducts as $recommendedProduct) {
+            foreach ($recommendedProduct->suggestedCategoryIds() as $categoryId) {
+                $productsSuggestedByCategory[$categoryId][] = $recommendedProduct->id;
+            }
+        }
         $featuredIds = $allProducts->where('is_featured', true)->pluck('id')->take(8);
 
         if ($featuredIds->isEmpty()) {
             $featuredIds = $allProducts->take(6)->pluck('id');
         }
 
-        $productData = $allProducts->map(function (MenuProduct $product) use ($branch, $productsById, $categoryNames): array {
+        $productData = $allProducts->map(function (MenuProduct $product) use ($branch, $productsById, $categoryNames, $productsSuggestedByCategory): array {
             $priceCents = Money::toCents($product->priceFor($branch));
 
             return [
@@ -118,12 +124,12 @@ class MenuController extends Controller
                         'price_delta_label' => '+'.Money::format(Money::toCents($option->price_delta)),
                     ])->values()->all(),
                 ])->values()->all(),
-                'suggestions' => collect($product->suggestions ?? [])
-                    ->map(fn ($id): int => (int) $id)
-                    ->filter(fn (int $id): bool => $id !== $product->id && $productsById->has($id))
-                    ->unique()
-                    ->values()
-                    ->all(),
+                'suggestions' => $product->suggestedProductIds()
+                    ->filter(fn (int $id): bool => $productsById->has($id))
+                    ->values()->all(),
+                'category_suggestions' => collect($productsSuggestedByCategory[$product->category_id] ?? [])
+                    ->filter(fn (int $id): bool => $id !== $product->id)
+                    ->unique()->take(6)->values()->all(),
             ];
         })->values();
 

@@ -44,36 +44,89 @@ document.querySelectorAll('[data-loyalty-campaign-form]').forEach((form) => {
 });
 
 const suggestionTemplate = document.querySelector('#menu-suggestion-options');
+const suggestionCategoryTemplate = document.querySelector('#menu-suggestion-category-options');
 document.addEventListener('toggle', (event) => {
     const details = event.target;
-    if (!details.matches?.('[data-product-edit-details]') || !details.open || !suggestionTemplate) return;
+    if (!details.matches?.('[data-recommendation-details]') || !details.open) return;
 
     const picker = details.querySelector('[data-suggestion-picker]');
     const options = picker?.querySelector('[data-suggestion-options]');
-    if (!picker || !options || options.dataset.loaded === 'true') return;
+    if (picker && options && options.dataset.loaded !== 'true' && suggestionTemplate) {
+        const currentProductId = String(details.dataset.productId ?? '');
+        const selectedIds = new Set((picker.dataset.selectedSuggestions ?? '').split(',').filter(Boolean));
+        options.replaceChildren();
+        suggestionTemplate.content.querySelectorAll('[data-suggestion-option]').forEach((option) => {
+            if (option.dataset.suggestionProductId === currentProductId) return;
 
-    const currentProductId = String(details.dataset.productId ?? '');
-    const selectedIds = new Set((picker.dataset.selectedSuggestions ?? '').split(',').filter(Boolean));
-    options.replaceChildren();
-    suggestionTemplate.content.querySelectorAll('[data-suggestion-option]').forEach((option) => {
-        if (option.dataset.suggestionProductId === currentProductId) return;
+            const clone = option.cloneNode(true);
+            const checkbox = clone.querySelector('input[type="checkbox"]');
+            checkbox.name = 'suggestions[]';
+            checkbox.checked = selectedIds.has(checkbox.value);
+            options.append(clone);
+        });
+        options.dataset.loaded = 'true';
 
-        const clone = option.cloneNode(true);
-        const checkbox = clone.querySelector('input[type="checkbox"]');
-        checkbox.name = 'suggestions[]';
-        checkbox.checked = selectedIds.has(checkbox.value);
-        options.append(clone);
-    });
-    options.dataset.loaded = 'true';
+        picker.querySelector('[data-suggestion-search]')?.addEventListener('input', (searchEvent) => {
+            const query = searchEvent.currentTarget.value.trim().toLocaleLowerCase('tr-TR');
+            options.querySelectorAll('[data-suggestion-option]').forEach((option) => {
+                const name = option.querySelector('[data-suggestion-product-name]')?.textContent?.trim().toLocaleLowerCase('tr-TR') ?? '';
+                option.hidden = !name.includes(query);
+            });
+        });
+    }
 
-    picker.querySelector('[data-suggestion-search]')?.addEventListener('input', (searchEvent) => {
-        const query = searchEvent.currentTarget.value.trim().toLocaleLowerCase('tr-TR');
-        options.querySelectorAll('[data-suggestion-option]').forEach((option) => {
-            const name = option.querySelector('[data-suggestion-product-name]')?.textContent?.trim().toLocaleLowerCase('tr-TR') ?? '';
-            option.hidden = !name.includes(query);
+    const categoryPicker = details.querySelector('[data-suggestion-category-picker]');
+    const categoryOptions = categoryPicker?.querySelector('[data-suggestion-category-options]');
+    if (categoryPicker && categoryOptions && categoryOptions.dataset.loaded !== 'true' && suggestionCategoryTemplate) {
+        const selectedCategoryIds = new Set((categoryPicker.dataset.selectedCategories ?? '').split(',').filter(Boolean));
+        categoryOptions.replaceChildren();
+        suggestionCategoryTemplate.content.querySelectorAll('[data-suggestion-category-option]').forEach((option) => {
+            const clone = option.cloneNode(true);
+            const checkbox = clone.querySelector('input[type="checkbox"]');
+            checkbox.name = 'suggestion_category_ids[]';
+            checkbox.checked = selectedCategoryIds.has(checkbox.value);
+            categoryOptions.append(clone);
+        });
+        categoryOptions.dataset.loaded = 'true';
+
+        categoryPicker.querySelector('[data-suggestion-category-search]')?.addEventListener('input', (searchEvent) => {
+            const query = searchEvent.currentTarget.value.trim().toLocaleLowerCase('tr-TR');
+            categoryOptions.querySelectorAll('[data-suggestion-category-option]').forEach((option) => {
+                const name = option.querySelector('[data-suggestion-category-name]')?.textContent?.trim().toLocaleLowerCase('tr-TR') ?? '';
+                option.hidden = !name.includes(query);
+            });
+        });
+    }
+}, true);
+
+const categoryStrip = document.querySelector('[data-category-strip]');
+if (categoryStrip) {
+    const categoryScrollButtons = [...document.querySelectorAll('[data-category-scroll]')];
+    const updateCategoryScrollButtons = () => {
+        const canScroll = categoryStrip.scrollWidth > categoryStrip.clientWidth + 1;
+        categoryScrollButtons.forEach((button) => {
+            button.hidden = !canScroll;
+            button.disabled = button.dataset.categoryScroll === 'left'
+                ? categoryStrip.scrollLeft <= 1
+                : categoryStrip.scrollLeft + categoryStrip.clientWidth >= categoryStrip.scrollWidth - 1;
+        });
+    };
+
+    categoryScrollButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+            const direction = button.dataset.categoryScroll === 'left' ? -1 : 1;
+            categoryStrip.scrollBy({ left: direction * Math.max(180, categoryStrip.clientWidth * 0.75), behavior: 'smooth' });
         });
     });
-}, true);
+    categoryStrip.addEventListener('scroll', updateCategoryScrollButtons, { passive: true });
+    window.addEventListener('resize', updateCategoryScrollButtons);
+
+    const selectedCategory = categoryStrip.querySelector('[aria-current="page"]');
+    if (selectedCategory) {
+        categoryStrip.scrollLeft = Math.max(0, selectedCategory.offsetLeft - (categoryStrip.clientWidth - selectedCategory.clientWidth) / 2);
+    }
+    updateCategoryScrollButtons();
+}
 
 /**
  * Sheets (bottom sheet on mobile, centered dialog on desktop).

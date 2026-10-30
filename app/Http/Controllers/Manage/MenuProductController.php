@@ -100,7 +100,7 @@ class MenuProductController extends Controller
             'prep_minutes' => $validated['prep_minutes'] ?? 0,
             'is_available' => $request->boolean('is_available', true),
             'is_featured' => $request->boolean('is_featured'),
-            'suggestions' => $this->suggestions($validated['suggestions'] ?? []),
+            'suggestions' => $this->recommendations($validated['suggestions'] ?? [], $validated['suggestion_category_ids'] ?? []),
             'sort_order' => MenuProduct::query()->where('category_id', $category->id)->max('sort_order') + 1,
         ]);
         $this->log($request, $branch, $product, 'menu.product_created');
@@ -128,7 +128,7 @@ class MenuProductController extends Controller
             'prep_minutes' => $validated['prep_minutes'] ?? 0,
             'is_available' => $request->boolean('is_available'),
             'is_featured' => $request->boolean('is_featured'),
-            'suggestions' => $this->suggestions($validated['suggestions'] ?? [], $product->id),
+            'suggestions' => $this->recommendations($validated['suggestions'] ?? [], $validated['suggestion_category_ids'] ?? [], $product->id),
         ])->save();
         $this->log($request, $branch, $product, 'menu.product_updated');
 
@@ -215,6 +215,14 @@ class MenuProductController extends Controller
                     }
                 }),
             ],
+            'suggestion_category_ids' => ['nullable', 'array', 'max:20'],
+            'suggestion_category_ids.*' => [
+                'integer',
+                Rule::exists('menu_categories', 'id')->where(function ($query) use ($branch): void {
+                    $query->where('cafe_id', $branch->cafe_id)
+                        ->where('branch_id', $branch->uses_shared_menu ? null : $branch->id);
+                }),
+            ],
         ]);
     }
 
@@ -258,6 +266,23 @@ class MenuProductController extends Controller
             ->unique()
             ->values()
             ->all();
+    }
+
+    /** @param array<int, int|string> $productIds
+     *  @param array<int, int|string> $categoryIds
+     *  @return array<int, int|string> */
+    private function recommendations(array $productIds, array $categoryIds, ?int $ignoreId = null): array
+    {
+        $productSuggestions = $this->suggestions($productIds, $ignoreId);
+        $categorySuggestions = collect($categoryIds)
+            ->map(fn ($id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
+            ->map(fn (int $id): string => 'category:'.$id)
+            ->values()
+            ->all();
+
+        return [...$productSuggestions, ...$categorySuggestions];
     }
 
     private function category(Branch $branch, int $categoryId): MenuCategory

@@ -52,6 +52,44 @@ class BranchMenuManagementTest extends TestCase
             ->assertDontSee('data-menu-product-id="'.$sharedProduct->id.'"', false);
     }
 
+    public function test_owner_can_configure_product_and_category_based_recommendations(): void
+    {
+        [$cafe, $branch, $product] = $this->createSharedMenu();
+        $snacks = $cafe->categories()->create(['name' => 'Atıştırmalıklar', 'sort_order' => 2, 'is_active' => true]);
+        $snack = $snacks->products()->create([
+            'cafe_id' => $cafe->id,
+            'name' => 'Peynirli tost',
+            'price' => '160.00',
+            'is_available' => true,
+        ]);
+        $desserts = $cafe->categories()->create(['name' => 'Tatlılar', 'sort_order' => 3, 'is_active' => true]);
+        $dessert = $desserts->products()->create([
+            'cafe_id' => $cafe->id,
+            'name' => 'San Sebastian',
+            'price' => '220.00',
+            'is_available' => true,
+        ]);
+        $owner = User::factory()->create(['role' => User::ROLE_CAFE_OWNER, 'cafe_id' => $cafe->id]);
+
+        $this->actingAs($owner)->patch(route('manage.products.update', [$branch, $product->id]), [
+            'category_id' => $product->category_id,
+            'name' => $product->name,
+            'price' => $product->price,
+            'is_available' => 1,
+            'is_featured' => 0,
+            'suggestions' => [$dessert->id],
+            'suggestion_category_ids' => [$snacks->id],
+        ])->assertRedirect(route('manage.branches.show', $branch));
+
+        $this->assertSame([$dessert->id, 'category:'.$snacks->id], $product->fresh()->suggestions);
+
+        $table = DiningTable::createWithToken(['branch_id' => $branch->id, 'name' => 'Masa 1', 'is_active' => true]);
+        $menuResponse = $this->get(route('customer.menu', $table->token()))->assertOk();
+        $menuResponse
+            ->assertSee('"suggestions":['.$dessert->id.']', false)
+            ->assertSee('"category_suggestions":['.$product->id.']', false);
+    }
+
     public function test_branch_update_preserves_shared_menu_and_active_state_when_flags_are_omitted(): void
     {
         [$cafe, $branch, $product] = $this->createSharedMenu();
