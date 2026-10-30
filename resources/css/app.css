@@ -257,7 +257,7 @@
     }
 
     .featured-product-card {
-        flex: 0 0 100%;
+        flex: 0 0 calc((100% - 0.75rem) / 2);
     }
 
     @media (min-width: 640px) {

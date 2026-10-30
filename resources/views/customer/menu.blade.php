@@ -7,7 +7,7 @@
 <x-layouts.customer :title="$brand" :cafe="$cafe">
     <div id="customer-menu" class="min-h-dvh pb-32">
         <header class="relative">
-            <div class="relative h-56 overflow-hidden bg-forest sm:h-72">
+            <div class="relative min-h-[17rem] overflow-hidden bg-forest sm:min-h-[18rem]">
                 @if ($cafe->cover_url)
                     <img src="{{ $cafe->cover_url }}" alt="{{ $brand }} kapak görseli" class="absolute inset-0 size-full object-cover">
                 @else
@@ -59,7 +59,7 @@
                     </div>
                 </div>
 
-                <div class="absolute inset-x-0 bottom-0">
+                <div class="relative z-10 mt-8">
                     <div class="mx-auto max-w-6xl px-4 pb-7 sm:px-6">
                         <div class="flex items-end gap-4">
                             @if ($cafe->logo_url)

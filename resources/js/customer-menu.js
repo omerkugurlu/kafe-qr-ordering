@@ -325,9 +325,18 @@ function initMenu(root, data) {
         scheduleCouponRevalidation();
     }
 
-    function productImage(product, sizeClass, iconClass = 'size-7') {
+    document.addEventListener('error', (event) => {
+        const image = event.target;
+        if (!(image instanceof HTMLImageElement) || !image.matches('[data-menu-product-image]')) return;
+
+        image.hidden = true;
+        const fallback = image.nextElementSibling;
+        if (fallback) fallback.hidden = false;
+    }, true);
+
+    function productImage(product, sizeClass, iconClass = 'size-7', loading = 'lazy') {
         if (product.image_url) {
-            return `<img src="${escapeHtml(product.image_url)}" alt="" class="${sizeClass} object-cover" loading="lazy">`;
+            return `<img data-menu-product-image src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name ?? '')}" class="${sizeClass} object-cover" loading="${loading}" decoding="async"${loading === 'eager' ? ' fetchpriority="high"' : ''}><span hidden class="grid ${sizeClass} place-items-center bg-gradient-to-br from-sage to-cream text-forest/50">${coffeeFallback.replace('size-7', iconClass)}</span>`;
         }
 
         return `<span class="grid ${sizeClass} place-items-center bg-gradient-to-br from-sage to-cream text-forest/50">${coffeeFallback.replace('size-7', iconClass)}</span>`;
@@ -364,12 +373,12 @@ function initMenu(root, data) {
         `;
     }
 
-    function featuredCard(product) {
+    function featuredCard(product, prioritizeImage = false) {
         return `
             <article class="featured-product-card group relative snap-start overflow-hidden rounded-3xl border border-line bg-paper shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-soft">
                 <button type="button" class="absolute inset-0 z-0 size-full" data-product-open="${product.id}" aria-label="${escapeHtml(product.name)}"></button>
                 <div class="relative h-36 overflow-hidden bg-cream">
-                    ${productImage(product, 'h-36 w-full', 'size-10')}
+                    ${productImage(product, 'h-36 w-full', 'size-10', prioritizeImage ? 'eager' : 'lazy')}
                     <div class="absolute inset-0 bg-gradient-to-t from-ink/55 via-ink/5 to-transparent"></div>
                     ${product.prep_minutes ? `<span class="absolute right-3 top-3 rounded-full bg-paper/90 px-2.5 py-1 text-[10px] font-bold text-ink">${product.prep_minutes} ${escapeHtml(strings.min)}</span>` : ''}
                 </div>
@@ -448,7 +457,7 @@ function initMenu(root, data) {
         }
 
         section.hidden = false;
-        root.innerHTML = items.map(featuredCard).join('');
+        root.innerHTML = items.map((product, index) => featuredCard(product, index < 2)).join('');
         window.requestAnimationFrame(updateFeaturedControls);
     }
 
@@ -944,9 +953,7 @@ function initMenu(root, data) {
             const rewardChooser = selected && campaign.reward_type === 'product'
                 ? `<div class="mt-2 grid grid-cols-2 gap-2">${campaign.reward_products.map((product) => {
                     const chosen = cart.some((line) => line.isLoyaltyReward && line.productId === Number(product.id));
-                    const image = product.image_url
-                        ? `<img src="${escapeHtml(product.image_url)}" alt="" class="size-10 rounded-lg object-cover" loading="lazy">`
-                        : `<span class="grid size-10 place-items-center rounded-lg bg-cream text-forest">${coffeeFallback}</span>`;
+                    const image = productImage(product, 'size-10 rounded-lg', 'size-5');
                     return `<button type="button" data-loyalty-product-id="${product.id}" class="flex min-w-0 items-center gap-2 rounded-xl border ${chosen ? 'border-forest bg-paper' : 'border-line bg-paper/60'} p-2 text-left transition hover:border-forest/40">${image}<span class="min-w-0 flex-1"><span class="block truncate text-[11px] font-bold text-ink">${escapeHtml(product.name)}</span><span class="block text-[10px] font-bold text-success">${money(0)} · ${escapeHtml(strings.loyalty_free)} <s class="ml-1 font-medium text-muted">${money(product.price_cents)}</s></span></span></button>`;
                 }).join('')}</div><p class="mt-1 text-[10px] font-medium text-muted">${escapeHtml(strings.loyalty_choose_product)} ${escapeHtml(strings.loyalty_product_cart_note)}</p>`
                 : '';

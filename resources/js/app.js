@@ -45,6 +45,33 @@ document.querySelectorAll('[data-loyalty-campaign-form]').forEach((form) => {
 
 const suggestionTemplate = document.querySelector('#menu-suggestion-options');
 const suggestionCategoryTemplate = document.querySelector('#menu-suggestion-category-options');
+const setupSuggestionPicker = (picker, options) => {
+    if (!picker || !options || picker.dataset.controlsReady === 'true') return;
+
+    const count = picker.querySelector('[data-suggestion-count]');
+    const updateCount = () => {
+        const selected = options.querySelectorAll('input[type="checkbox"]:checked').length;
+        if (count) count.textContent = `${selected} seçili`;
+    };
+
+    options.addEventListener('change', updateCount);
+    picker.querySelector('[data-select-visible]')?.addEventListener('click', () => {
+        options.querySelectorAll('[data-suggestion-option], [data-suggestion-category-option]').forEach((option) => {
+            if (option.hidden) return;
+            const checkbox = option.querySelector('input[type="checkbox"]');
+            if (checkbox) checkbox.checked = true;
+        });
+        updateCount();
+    });
+    picker.querySelector('[data-clear-selection]')?.addEventListener('click', () => {
+        options.querySelectorAll('input[type="checkbox"]:checked').forEach((checkbox) => { checkbox.checked = false; });
+        updateCount();
+    });
+
+    updateCount();
+    picker.dataset.controlsReady = 'true';
+};
+
 document.addEventListener('toggle', (event) => {
     const details = event.target;
     if (!details.matches?.('[data-recommendation-details]') || !details.open) return;
@@ -74,6 +101,7 @@ document.addEventListener('toggle', (event) => {
             });
         });
     }
+    setupSuggestionPicker(picker, options);
 
     const categoryPicker = details.querySelector('[data-suggestion-category-picker]');
     const categoryOptions = categoryPicker?.querySelector('[data-suggestion-category-options]');
@@ -97,6 +125,7 @@ document.addEventListener('toggle', (event) => {
             });
         });
     }
+    setupSuggestionPicker(categoryPicker, categoryOptions);
 }, true);
 
 const categoryStrip = document.querySelector('[data-category-strip]');
