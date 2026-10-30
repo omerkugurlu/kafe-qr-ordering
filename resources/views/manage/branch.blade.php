@@ -109,8 +109,8 @@
                 <div class="space-y-3 p-4">
                     <div class="flex min-w-0 items-center gap-3">
                         <span class="grid size-10 shrink-0 place-items-center rounded-full bg-amber-soft text-amber-900"><x-ui.icon name="star" class="size-5" /></span>
-                        <span class="min-w-0 flex-1"><span id="featured-manager-title" class="block font-display text-base font-semibold leading-tight text-ink">Sizin için seçtiklerimiz</span><span class="mt-1 block text-xs text-muted">Müşteri menüsünün üstünde göster</span></span>
-                        <span data-featured-count class="shrink-0 rounded-full bg-sage px-2.5 py-1 text-xs font-bold text-forest">{{ $suggestionPool->where('is_available', true)->where('is_featured', true)->count() }} / 8 seçili</span>
+                        <span class="min-w-0 flex-1"><span id="featured-manager-title" class="block font-display text-base font-semibold leading-tight text-ink">Öne çıkan ürünler</span><span class="mt-1 block text-xs text-muted">Müşteri menüsünün üstünde göster</span></span>
+                        <span data-featured-count class="shrink-0 whitespace-nowrap rounded-full bg-sage px-2.5 py-1 text-xs font-bold tabular-nums text-forest">{{ $suggestionPool->where('is_available', true)->where('is_featured', true)->count() }} / 8 seçili</span>
                     </div>
                     <button type="submit" form="featured-products-form" class="btn btn-primary min-h-11 w-full">Seçtiklerimizi kaydet</button>
                 </div>
