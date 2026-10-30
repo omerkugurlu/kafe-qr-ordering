@@ -6,7 +6,6 @@
 >
     @php
         $totalProducts = $categories->sum('products_count');
-        $suggestionPool = $categories->flatMap(fn ($category) => $category->products)->sortBy('name');
         $otherBranches = auth()->user()->cafe->branches()->where('id', '!=', $branch->id)->orderBy('name')->get(['id', 'name']);
     @endphp
 
@@ -46,7 +45,7 @@
         <article class="kpi">
             <p class="text-[11px] font-bold uppercase tracking-[.16em] text-muted">Ürün</p>
             <p class="mt-2 font-display text-3xl font-semibold text-ink">{{ $totalProducts }}</p>
-            <p class="mt-1 text-xs font-medium text-muted">{{ $suggestionPool->where('is_available', true)->count() }} tanesi satışta</p>
+            <p class="mt-1 text-xs font-medium text-muted">{{ $availableProductCount }} tanesi satışta</p>
         </article>
         <article class="kpi">
             <p class="text-[11px] font-bold uppercase tracking-[.16em] text-muted">Masa</p>
@@ -60,9 +59,34 @@
         </article>
     </div>
 
+    @if ($categories->isNotEmpty())
+        <nav aria-label="Menü kategorileri" class="mt-4 flex gap-2 overflow-x-auto rounded-2xl border border-line bg-paper p-3">
+            @foreach ($categories as $categoryOption)
+                <a
+                    href="{{ route('manage.branches.show', ['branch' => $branch, 'category_id' => $categoryOption->id]) }}"
+                    @class(['chip shrink-0', 'chip-active' => $selectedCategory?->id === $categoryOption->id])
+                >
+                    {{ $categoryOption->name }} <span class="ml-1 text-muted">{{ $categoryOption->products_count }}</span>
+                </a>
+            @endforeach
+        </nav>
+    @endif
+
+    @if ($suggestionPool->isNotEmpty())
+        <template id="menu-suggestion-options">
+            @foreach ($suggestionPool as $suggestion)
+                <label data-suggestion-option data-suggestion-product-id="{{ $suggestion->id }}" class="flex min-h-8 items-center gap-2 rounded-lg px-1.5 text-[11px] font-semibold text-ink hover:bg-cream/70">
+                    <input type="checkbox" value="{{ $suggestion->id }}" class="size-3.5 accent-forest">
+                    <span data-suggestion-product-name class="truncate">{{ $suggestion->name }}</span>
+                </label>
+            @endforeach
+        </template>
+    @endif
+
     <div class="mt-4 grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,.65fr)] xl:items-start">
         <section class="min-w-0 space-y-4">
-            @forelse ($categories as $category)
+            @if ($selectedCategory)
+                @php($category = $selectedCategory)
                 <article class="card overflow-hidden">
                     <header class="flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4">
                         <div class="min-w-0">
@@ -110,7 +134,7 @@
                     <div class="divide-y divide-line">
                         @forelse ($category->products as $product)
                             @php($selectedSuggestions = collect($product->suggestions ?? [])->map(fn ($id) => (int) $id)->all())
-                            <div class="p-4 sm:p-5">
+                            <div class="p-4 sm:p-5" data-menu-product-id="{{ $product->id }}">
                                 <div class="flex flex-wrap items-start gap-3">
                                     <div class="relative size-16 shrink-0 overflow-hidden rounded-xl border border-line bg-cream">
                                         @if ($product->image_url)
@@ -144,7 +168,7 @@
                                         </p>
                                     </div>
 
-                                    <details class="group w-full sm:w-auto">
+                                    <details class="group w-full sm:w-auto" data-product-edit-details data-product-id="{{ $product->id }}">
                                         <summary class="btn btn-secondary btn-sm w-full cursor-pointer list-none">
                                             <x-ui.icon name="pencil" class="size-4" /> Ürünü düzenle
                                         </summary>
@@ -209,13 +233,11 @@
                                                     @if ($suggestionPool->where('id', '!=', $product->id)->isEmpty())
                                                         <p class="rounded-xl border border-dashed border-line px-3 py-3 text-[11px] font-medium text-muted">Öneri için başka ürün ekleyin.</p>
                                                     @else
-                                                        <div class="mt-1 grid max-h-36 gap-1 overflow-y-auto rounded-xl border border-line bg-paper p-2 sm:grid-cols-2">
-                                                            @foreach ($suggestionPool->where('id', '!=', $product->id) as $suggestion)
-                                                                <label class="flex min-h-8 items-center gap-2 rounded-lg px-1.5 text-[11px] font-semibold text-ink hover:bg-cream/70">
-                                                                    <input type="checkbox" name="suggestions[]" value="{{ $suggestion->id }}" @checked(in_array($suggestion->id, $selectedSuggestions, true)) class="size-3.5 accent-forest">
-                                                                    <span class="truncate">{{ $suggestion->name }}</span>
-                                                                </label>
-                                                            @endforeach
+                                                        <div data-suggestion-picker data-selected-suggestions="{{ implode(',', $selectedSuggestions) }}" class="mt-1 rounded-xl border border-line bg-paper p-2">
+                                                            <label class="block"><span class="sr-only">Önerilecek ürünleri ara</span><input type="search" data-suggestion-search autocomplete="off" class="input py-2 text-xs" placeholder="Ürün adına göre ara"></label>
+                                                            <div data-suggestion-options class="mt-1 grid max-h-36 gap-1 overflow-y-auto sm:grid-cols-2">
+                                                                <p class="col-span-full py-2 text-[11px] font-medium text-muted">Ürün listesini görüntülemek için düzenlemeyi açın.</p>
+                                                            </div>
                                                         </div>
                                                     @endif
                                                 </div>
@@ -248,13 +270,13 @@
                         @endforelse
                     </div>
                 </article>
-            @empty
+            @else
                 <div class="card p-10 text-center">
                     <span class="mx-auto grid size-14 place-items-center rounded-full bg-sage text-forest"><x-ui.icon name="utensils" class="size-6" /></span>
                     <h2 class="mt-4 font-display text-xl font-semibold text-ink">Menü boş</h2>
                     <p class="mx-auto mt-1 max-w-md text-sm leading-6 text-muted">Sağdaki formdan ilk kategoriyi oluşturun, ardından ürünleri ekleyin. İsterseniz ortak menüyü bu şubeye kopyalayabilirsiniz.</p>
                 </div>
-            @endforelse
+            @endif
         </section>
 
         <aside class="space-y-4 xl:sticky xl:top-24 xl:self-start">

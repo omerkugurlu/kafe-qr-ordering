@@ -18,25 +18,49 @@ use Illuminate\View\View;
 
 class BranchController extends Controller
 {
-    public function show(Branch $branch): View
+    public function show(Request $request, Branch $branch): View
     {
         Gate::authorize('view', $branch);
         $branch->loadCount('diningTables');
+        $menuBranchId = $branch->uses_shared_menu ? null : $branch->id;
         $categories = MenuCategory::query()
             ->where('cafe_id', $branch->cafe_id)
-            ->where('branch_id', $branch->uses_shared_menu ? null : $branch->id)
-            ->with(['products' => function ($query): void {
+            ->where('branch_id', $menuBranchId)
+            ->withCount('products')
+            ->orderBy('sort_order')->orderBy('name')->get();
+        $categorySessionKey = 'manage.branch.category.'.$branch->id;
+        $selectedCategoryId = $request->integer('category_id') ?: (int) $request->session()->get($categorySessionKey, 0);
+        $selectedCategory = $categories->firstWhere('id', $selectedCategoryId) ?? $categories->first();
+
+        if ($selectedCategory !== null) {
+            $request->session()->put($categorySessionKey, $selectedCategory->id);
+        } else {
+            $request->session()->forget($categorySessionKey);
+        }
+
+        if ($selectedCategory !== null) {
+            $selectedCategory->load(['products' => function ($query) use ($branch): void {
                 $query->orderBy('sort_order');
+                if ($branch->uses_shared_menu) {
+                    $query->with(['branches' => fn ($branches) => $branches->whereKey($branch->id)]);
+                }
                 if (method_exists(MenuProduct::class, 'optionGroups')) {
                     $query->with('optionGroups.options');
                 }
-            }])
-            ->withCount('products')->orderBy('sort_order')->orderBy('name')->get();
+            }]);
+        }
+
+        $suggestionPool = MenuProduct::query()
+            ->where('cafe_id', $branch->cafe_id)
+            ->where('branch_id', $menuBranchId)
+            ->orderBy('name')
+            ->get(['id', 'name', 'suggestions', 'is_available']);
+        $availableProductCount = $suggestionPool->where('is_available', true)->count();
         $menuSources = Branch::query()->where('cafe_id', $branch->cafe_id)
             ->where('id', '!=', $branch->id)->where('is_active', true)->orderBy('name')->get(['id', 'name', 'uses_shared_menu']);
         $hasPrivateMenu = MenuCategory::query()->where('cafe_id', $branch->cafe_id)->where('branch_id', $branch->id)->exists();
 
-        return view('manage.branch', compact('branch', 'categories', 'menuSources', 'hasPrivateMenu'));
+        return view('manage.branch', compact('branch', 'categories', 'selectedCategory', 'suggestionPool', 'availableProductCount', 'menuSources', 'hasPrivateMenu'));
     }
 
     public function store(Request $request, SubscriptionService $subscriptions): RedirectResponse

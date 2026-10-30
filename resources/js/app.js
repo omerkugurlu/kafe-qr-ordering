@@ -43,6 +43,38 @@ document.querySelectorAll('[data-loyalty-campaign-form]').forEach((form) => {
     update();
 });
 
+const suggestionTemplate = document.querySelector('#menu-suggestion-options');
+document.addEventListener('toggle', (event) => {
+    const details = event.target;
+    if (!details.matches?.('[data-product-edit-details]') || !details.open || !suggestionTemplate) return;
+
+    const picker = details.querySelector('[data-suggestion-picker]');
+    const options = picker?.querySelector('[data-suggestion-options]');
+    if (!picker || !options || options.dataset.loaded === 'true') return;
+
+    const currentProductId = String(details.dataset.productId ?? '');
+    const selectedIds = new Set((picker.dataset.selectedSuggestions ?? '').split(',').filter(Boolean));
+    options.replaceChildren();
+    suggestionTemplate.content.querySelectorAll('[data-suggestion-option]').forEach((option) => {
+        if (option.dataset.suggestionProductId === currentProductId) return;
+
+        const clone = option.cloneNode(true);
+        const checkbox = clone.querySelector('input[type="checkbox"]');
+        checkbox.name = 'suggestions[]';
+        checkbox.checked = selectedIds.has(checkbox.value);
+        options.append(clone);
+    });
+    options.dataset.loaded = 'true';
+
+    picker.querySelector('[data-suggestion-search]')?.addEventListener('input', (searchEvent) => {
+        const query = searchEvent.currentTarget.value.trim().toLocaleLowerCase('tr-TR');
+        options.querySelectorAll('[data-suggestion-option]').forEach((option) => {
+            const name = option.querySelector('[data-suggestion-product-name]')?.textContent?.trim().toLocaleLowerCase('tr-TR') ?? '';
+            option.hidden = !name.includes(query);
+        });
+    });
+}, true);
+
 /**
  * Sheets (bottom sheet on mobile, centered dialog on desktop).
  */

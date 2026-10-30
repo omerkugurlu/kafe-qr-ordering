@@ -14,6 +14,44 @@ class BranchMenuManagementTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_branch_menu_editor_renders_one_selected_category_at_a_time(): void
+    {
+        [$cafe, $branch, $sharedProduct] = $this->createSharedMenu();
+        $drinks = $cafe->categories()->create(['name' => 'İçecekler', 'sort_order' => 1, 'is_active' => true]);
+
+        $lastDrink = null;
+        for ($index = 1; $index <= 65; $index++) {
+            $lastDrink = $cafe->products()->create([
+                'category_id' => $drinks->id,
+                'name' => 'İçecek '.$index,
+                'price' => '100.00',
+                'is_available' => true,
+            ]);
+        }
+
+        $owner = User::factory()->create(['role' => User::ROLE_CAFE_OWNER, 'cafe_id' => $cafe->id]);
+
+        $defaultResponse = $this->actingAs($owner)->get(route('manage.branches.show', $branch));
+        $defaultResponse
+            ->assertOk()
+            ->assertSee('data-menu-product-id="'.$sharedProduct->id.'"', false)
+            ->assertDontSee('data-menu-product-id="'.$lastDrink->id.'"', false);
+
+        $drinksResponse = $this->actingAs($owner)->get(route('manage.branches.show', ['branch' => $branch, 'category_id' => $drinks->id]));
+        $drinksResponse
+            ->assertOk()
+            ->assertSee('data-menu-product-id="'.$lastDrink->id.'"', false)
+            ->assertDontSee('data-menu-product-id="'.$sharedProduct->id.'"', false);
+        $drinksResponse->assertSessionHas('manage.branch.category.'.$branch->id, $drinks->id);
+        $this->assertLessThan(2_000_000, strlen($drinksResponse->getContent()));
+
+        $this->actingAs($owner)
+            ->get(route('manage.branches.show', $branch))
+            ->assertOk()
+            ->assertSee('data-menu-product-id="'.$lastDrink->id.'"', false)
+            ->assertDontSee('data-menu-product-id="'.$sharedProduct->id.'"', false);
+    }
+
     public function test_branch_update_preserves_shared_menu_and_active_state_when_flags_are_omitted(): void
     {
         [$cafe, $branch, $product] = $this->createSharedMenu();
