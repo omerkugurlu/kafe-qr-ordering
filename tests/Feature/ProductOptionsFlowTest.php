@@ -57,6 +57,7 @@ class ProductOptionsFlowTest extends TestCase
 
         $this->post(route('customer.orders.store', $token), [
             'session_id' => $this->qrSessionId($table),
+            'qr_visit_id' => $this->qrVisitId($table),
             'items' => [$product->id => 2],
             'options' => [$product->id => [$group->id => $paid->id]],
         ])->assertRedirect(route('customer.menu', $token));
@@ -106,11 +107,13 @@ class ProductOptionsFlowTest extends TestCase
 
         $this->post(route('customer.orders.store', $token), [
             'session_id' => $this->qrSessionId($table),
+            'qr_visit_id' => $this->qrVisitId($table),
             'items' => [$product->id => 1],
         ])
             ->assertSessionHasErrors('options');
         $this->post(route('customer.orders.store', $token), [
             'session_id' => $this->qrSessionId($table),
+            'qr_visit_id' => $this->qrVisitId($table),
             'items' => [$product->id => 1],
             'options' => [$product->id => [$group->id => $otherFree->id]],
         ])->assertSessionHasErrors('options');
@@ -128,6 +131,7 @@ class ProductOptionsFlowTest extends TestCase
         $items = [$product->id => 1, $otherProduct->id => 0] + array_fill_keys(range(10000, 10034), 0);
         $this->post(route('customer.orders.store', $token), [
             'session_id' => $this->qrSessionId($table),
+            'qr_visit_id' => $this->qrVisitId($table),
             'items' => $items,
             'options' => [
                 $product->id => [$group->id => $free->id],
@@ -150,6 +154,7 @@ class ProductOptionsFlowTest extends TestCase
 
         $this->actingAs($customer)->post(route('customer.orders.store', $token), [
             'session_id' => $this->qrSessionId($table),
+            'qr_visit_id' => $this->qrVisitId($table),
             'items' => [$product->id => 1],
         ])->assertSessionHasErrors('items');
 
@@ -179,6 +184,7 @@ class ProductOptionsFlowTest extends TestCase
 
         $this->post(route('customer.orders.store', $token), [
             'session_id' => $this->qrSessionId($table),
+            'qr_visit_id' => $this->qrVisitId($table),
             'items' => array_fill_keys(range(10000, 10030), 1),
         ])->assertSessionHasErrors('items');
 
@@ -238,7 +244,21 @@ class ProductOptionsFlowTest extends TestCase
 
     private function qrSessionId(DiningTable $table): int
     {
+        $this->get(route('customer.menu', $table->token()));
+
         return (int) $table->openSession()?->id;
+    }
+
+    private function qrVisitId(DiningTable $table): string
+    {
+        $response = $this->get(route('customer.menu', $table->token()));
+        preg_match('~<script type="application/json" id="menu-data">(.*?)</script>~s', $response->getContent(), $matches);
+        $menuData = json_decode($matches[1] ?? '', true);
+        $visitId = $menuData['qr_visit_id'] ?? null;
+
+        $this->assertIsString($visitId);
+
+        return $visitId;
     }
 
     /** @return array{MenuOptionGroup, MenuOption, MenuOption} */

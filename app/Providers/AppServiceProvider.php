@@ -5,6 +5,7 @@ namespace App\Providers;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -22,6 +23,15 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $e2eBuildDirectory = env('LARAVEL_VITE_BUILD_DIRECTORY');
+        if (
+            app()->environment('testing')
+            && is_string($e2eBuildDirectory)
+            && preg_match('/^build-laravel-e2e-[a-z0-9-]+$/', $e2eBuildDirectory) === 1
+        ) {
+            Vite::useBuildDirectory($e2eBuildDirectory);
+        }
+
         RateLimiter::for('login', fn (Request $request) => Limit::perMinute(5)->by(strtolower((string) $request->input('email')).'|'.$request->ip()));
         RateLimiter::for('qr-menu', fn (Request $request) => Limit::perMinute(90)->by($request->ip()));
         RateLimiter::for('qr-order', fn (Request $request) => Limit::perMinute(8)->by($request->route('token').'|'.$request->ip()));

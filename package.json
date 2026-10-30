@@ -10,6 +10,7 @@
         "test:watch": "vitest",
         "typecheck": "tsc --noEmit",
         "test:e2e": "playwright test",
+        "test:e2e:laravel": "tsx scripts/run-laravel-e2e.ts",
         "create:admin": "tsx scripts/create-platform-admin.ts"
     },
     "devDependencies": {

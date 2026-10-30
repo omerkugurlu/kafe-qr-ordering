@@ -7,6 +7,7 @@ use App\Models\Branch;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\TableSession;
+use App\Models\User;
 use App\Services\LoyaltyService;
 use App\Services\OrderSettlementService;
 use Illuminate\Support\Facades\DB;
@@ -50,12 +51,13 @@ class OrderBoard extends Component
 
         $branch = $this->branch();
         Gate::authorize('view', $branch);
+        abort_unless(auth()->user()?->role === User::ROLE_CAFE_OWNER, 403, 'Siparişi yalnızca kafe sahibi iptal edebilir.');
         DB::transaction(function () use ($orderId, $branch, $reason, $loyalty): void {
             $candidate = $branch->orders()->whereKey($orderId)->firstOrFail();
             $session = TableSession::query()->whereKey($candidate->table_session_id)->lockForUpdate()->firstOrFail();
             $order = $branch->orders()->whereKey($orderId)->lockForUpdate()->firstOrFail();
 
-            if (! in_array($order->status, [Order::STATUS_PENDING, Order::STATUS_ACCEPTED], true)) {
+            if ($order->status !== Order::STATUS_PENDING) {
                 throw ValidationException::withMessages(['order' => 'Bu sipariş artık iptal edilemez.']);
             }
 

@@ -53,10 +53,13 @@ function itemsHtml(order, compact = false) {
     }).join('');
 }
 
-function boardOrderCard(order) {
+function boardOrderCard(order, canCancelOrders) {
     const meta = statusMeta[order.status] ?? statusMeta.pending;
     const note = order.note
         ? `<p class="mt-2 rounded-xl bg-amber-soft px-3 py-2 text-xs font-semibold leading-5 text-[#8a5a14]">Not: ${escapeHtml(order.note)}</p>`
+        : '';
+    const cancelAction = canCancelOrders && order.status === 'pending'
+        ? `<button type="button" class="btn btn-secondary btn-sm text-danger" data-order-action data-order="${order.id}" data-status="cancelled">İptal</button>`
         : '';
     const coupon = order.coupon_code
         ? `<span class="badge badge-paid">Kupon ${escapeHtml(order.coupon_code)}</span>`
@@ -85,9 +88,7 @@ function boardOrderCard(order) {
                 <button type="button" class="btn btn-primary btn-sm" data-order-action data-order="${order.id}" data-status="${meta.nextStatus}">
                     ${meta.next}
                 </button>
-                <button type="button" class="btn btn-secondary btn-sm text-danger" data-order-action data-order="${order.id}" data-status="cancelled">
-                    İptal
-                </button>
+                ${cancelAction}
             </div>
         </article>`;
 }
@@ -202,7 +203,7 @@ function renderBoard(root, payload) {
             return;
         }
 
-        body.innerHTML = payload.orders.filter((order) => order.status === lane).map(boardOrderCard).join('');
+        body.innerHTML = payload.orders.filter((order) => order.status === lane).map((order) => boardOrderCard(order, payload.can_cancel_orders === true)).join('');
 
         if (body.children.length === 0) {
             body.innerHTML = `<p class="rounded-2xl border border-dashed border-line px-4 py-8 text-center text-xs font-medium text-muted">${laneEmpty[lane]}</p>`;

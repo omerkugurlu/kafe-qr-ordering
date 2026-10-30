@@ -36,6 +36,7 @@ class OrderController extends Controller
     ): RedirectResponse|JsonResponse {
         $validated = $request->validate([
             'session_id' => ['required', 'integer', 'min:1'],
+            'qr_visit_id' => ['nullable', 'uuid'],
             'lines' => ['nullable', 'array', 'min:1', 'max:50'],
             'lines.*.product_id' => ['required_with:lines', 'integer', 'min:1'],
             'lines.*.quantity' => ['required_with:lines', 'integer', 'min:1', 'max:20'],
@@ -81,6 +82,12 @@ class OrderController extends Controller
 
         if ($customer !== null && ! $customer->is_active) {
             throw ValidationException::withMessages(['items' => 'Müşteri hesabınız aktif değil.']);
+        }
+
+        if (empty($validated['qr_visit_id'])) {
+            throw ValidationException::withMessages([
+                'qr_visit_id' => 'Bu QR ziyareti bulunamadı. Masadaki QR kodunu yeniden okutun.',
+            ]);
         }
 
         $quantities = collect($validated['items'] ?? [])
@@ -148,6 +155,21 @@ class OrderController extends Controller
             if ($session === null || (int) $session->id !== (int) $validated['session_id']) {
                 throw ValidationException::withMessages([
                     'session_id' => 'Bu QR oturumu sona erdi. Sipariş vermek için masadaki QR kodu yeniden okutun.',
+                ]);
+            }
+
+            $qrVisit = $request->session()->get('qr_visits.'.$lockedTable->id);
+            $visitId = is_array($qrVisit) ? (string) ($qrVisit['id'] ?? '') : '';
+            $visitSessionId = is_array($qrVisit) ? (int) ($qrVisit['session_id'] ?? 0) : 0;
+            $providedVisitId = $validated['qr_visit_id'] ?? null;
+
+            if (
+                $visitSessionId !== (int) $session->id
+                || ! Str::isUuid($visitId)
+                || ($providedVisitId !== null && ! hash_equals($visitId, $providedVisitId))
+            ) {
+                throw ValidationException::withMessages([
+                    'qr_visit_id' => 'Bu QR ziyareti bu adisyon için geçerli değil. Masadaki QR kodunu yeniden okutun.',
                 ]);
             }
 
@@ -392,6 +414,7 @@ class OrderController extends Controller
     {
         $validated = $request->validate([
             'session_id' => ['nullable', 'integer', 'min:1'],
+            'qr_visit_id' => ['nullable', 'uuid'],
         ]);
         $table = $this->tableForToken($token);
 
@@ -418,9 +441,24 @@ class OrderController extends Controller
         }
 
         $expectedSessionId = $validated['session_id'] ?? null;
+        $expectedVisitId = $validated['qr_visit_id'] ?? null;
 
-        if ($order === null && $expectedSessionId !== null && (int) ($session?->id ?? 0) !== (int) $expectedSessionId) {
-            $session = null;
+        if ($expectedSessionId !== null || $expectedVisitId !== null) {
+            $qrVisit = $request->session()->get('qr_visits.'.$table->id);
+            $visitSessionId = is_array($qrVisit) ? (int) ($qrVisit['session_id'] ?? 0) : 0;
+            $visitId = is_array($qrVisit) ? (string) ($qrVisit['id'] ?? '') : '';
+            $expectedSessionMatches = $expectedSessionId === null || (int) ($session?->id ?? 0) === (int) $expectedSessionId;
+            $orderSessionMatches = $order === null || $expectedSessionId === null || (int) $order->table_session_id === (int) $expectedSessionId;
+            $targetSessionId = (int) ($expectedSessionId ?? $order?->table_session_id ?? $session?->id ?? 0);
+            $visitMatches = $targetSessionId > 0
+                && $visitSessionId === $targetSessionId
+                && Str::isUuid($visitId)
+                && ($expectedVisitId === null || hash_equals($visitId, $expectedVisitId));
+
+            if (! $expectedSessionMatches || ! $orderSessionMatches || ! $visitMatches) {
+                $session = null;
+                $order = null;
+            }
         }
 
         return response()->json([

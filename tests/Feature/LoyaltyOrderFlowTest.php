@@ -43,9 +43,13 @@ class LoyaltyOrderFlowTest extends TestCase
             'minimum_order_total' => '0.00', 'is_active' => true,
         ]);
 
-        $this->actingAs($customer)->get(route('customer.menu', $table->token()))->assertSee('100 puan indirimi');
+        $menuResponse = $this->actingAs($customer)->get(route('customer.menu', $table->token()));
+        $menuResponse->assertSee('100 puan indirimi');
+        preg_match('~<script type="application/json" id="menu-data">(.*?)</script>~s', $menuResponse->getContent(), $matches);
+        $menuData = json_decode($matches[1] ?? '', true);
         $this->actingAs($customer)->post(route('customer.orders.store', $table->token()), [
             'session_id' => $table->openSession()->id,
+            'qr_visit_id' => $menuData['qr_visit_id'] ?? null,
             'items' => [$product->id => 1], 'loyalty_campaign_id' => $campaign->id,
         ])->assertRedirect(route('customer.menu', $table->token()));
 

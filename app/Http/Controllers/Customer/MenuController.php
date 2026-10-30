@@ -18,6 +18,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class MenuController extends Controller
 {
@@ -132,6 +133,7 @@ class MenuController extends Controller
         ])->values();
 
         $session = $this->startOrFindQrSession($table, $request);
+        $qrVisit = $request->session()->get('qr_visits.'.$table->id);
 
         $sessionPayload = $session !== null ? $presenter->session($session) : null;
 
@@ -210,8 +212,11 @@ class MenuController extends Controller
             'products' => $productData,
             'featured_ids' => $featuredIds->values()->all(),
             'session' => $sessionPayload,
+            'qr_visit_id' => $session !== null && is_array($qrVisit) ? ($qrVisit['id'] ?? null) : null,
             'ordering_available' => $session?->status === TableSession::STATUS_OPEN
                 && $session->qr_ordering_enabled
+                && is_array($qrVisit)
+                && (int) ($qrVisit['session_id'] ?? 0) === (int) $session->id
                 && ! ($sessionPayload['qr_order_pending'] ?? false),
             'loyalty' => $loyalty,
             'urls' => [
@@ -249,9 +254,15 @@ class MenuController extends Controller
         ])->header('Cache-Control', 'private, no-store, max-age=0, must-revalidate');
     }
 
-    private function startOrFindQrSession(DiningTable $table, Request $request): TableSession
+    private function startOrFindQrSession(DiningTable $table, Request $request): ?TableSession
     {
-        return DB::transaction(function () use ($table, $request): TableSession {
+        $visitKey = 'qr_visits.'.$table->id;
+        $qrVisit = $request->session()->get($visitKey);
+        $hasValidVisit = is_array($qrVisit)
+            && (int) ($qrVisit['session_id'] ?? 0) > 0
+            && Str::isUuid((string) ($qrVisit['id'] ?? ''));
+
+        $session = DB::transaction(function () use ($table, $request, $hasValidVisit, $qrVisit): ?TableSession {
             $lockedTable = DiningTable::query()->whereKey($table->id)->lockForUpdate()->firstOrFail();
             $branch = $lockedTable->branch()->lockForUpdate()->firstOrFail();
             $cafe = $branch->cafe()->lockForUpdate()->firstOrFail();
@@ -269,6 +280,10 @@ class MenuController extends Controller
                 ->first();
 
             if ($session !== null) {
+                if ($hasValidVisit && (int) $qrVisit['session_id'] !== (int) $session->id) {
+                    return null;
+                }
+
                 return $session;
             }
 
@@ -294,5 +309,24 @@ class MenuController extends Controller
 
             return $session;
         });
+
+        if ($session === null) {
+            return null;
+        }
+
+        $qrVisit = $request->session()->get($visitKey);
+
+        if (
+            ! is_array($qrVisit)
+            || (int) ($qrVisit['session_id'] ?? 0) !== (int) $session->id
+            || ! Str::isUuid((string) ($qrVisit['id'] ?? ''))
+        ) {
+            // A new QR seating gets a fresh visit ID for this browser.
+            // Requests carrying the previous session ID or visit ID remain invalid.
+            $qrVisit = ['session_id' => $session->id, 'id' => (string) Str::uuid()];
+            $request->session()->put($visitKey, $qrVisit);
+        }
+
+        return $session;
     }
 }

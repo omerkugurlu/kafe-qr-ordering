@@ -153,6 +153,7 @@ class BoardController extends Controller
             'orders' => $orderPayload,
             'tables' => $tables,
             'can_open_tables' => auth()->user()?->hasRole(User::ROLE_WAITER, User::ROLE_CAFE_OWNER, User::ROLE_CAFE_MANAGER) ?? false,
+            'can_cancel_orders' => auth()->user()?->role === User::ROLE_CAFE_OWNER,
             'requests' => $requests,
         ]);
     }
@@ -177,6 +178,10 @@ class BoardController extends Controller
 
         $target = $validated['status'];
 
+        if ($target === Order::STATUS_CANCELLED) {
+            abort_unless($request->user()->role === User::ROLE_CAFE_OWNER, 403, 'Siparişi yalnızca kafe sahibi iptal edebilir.');
+        }
+
         $alreadyAtTarget = false;
 
         DB::transaction(function () use ($order, $target, $validated, $request, $settlement, $loyalty, &$alreadyAtTarget): void {
@@ -193,7 +198,7 @@ class BoardController extends Controller
                 Order::STATUS_ACCEPTED => [Order::STATUS_PENDING],
                 Order::STATUS_READY => [Order::STATUS_PENDING, Order::STATUS_ACCEPTED],
                 Order::STATUS_SERVED => [Order::STATUS_ACCEPTED, Order::STATUS_READY],
-                Order::STATUS_CANCELLED => [Order::STATUS_PENDING, Order::STATUS_ACCEPTED, Order::STATUS_READY],
+                Order::STATUS_CANCELLED => [Order::STATUS_PENDING],
                 default => [],
             };
 

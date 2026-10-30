@@ -446,8 +446,12 @@ class CustomerExperienceTest extends TestCase
             'opened_at' => now(),
         ]);
 
+        $this->get(route('customer.menu', $table->token()))->assertOk();
+        $qrVisitId = session('qr_visits.'.$table->id.'.id');
+
         $this->post(route('customer.orders.store', $table->token()), [
             'session_id' => $session->id,
+            'qr_visit_id' => $qrVisitId,
             'lines' => [
                 ['product_id' => $product->id, 'quantity' => $quantity],
             ],

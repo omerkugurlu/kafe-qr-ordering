@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Livewire\Staff\OrderBoard;
 use App\Models\ActivityLog;
 use App\Models\Branch;
 use App\Models\Cafe;
@@ -13,13 +14,14 @@ use App\Models\ServiceRequest;
 use App\Models\TableSession;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 class OperationsPanelTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_waiter_can_read_board_data_and_advance_order_status(): void
+    public function test_waiter_can_advance_orders_but_cannot_cancel_them(): void
     {
         [$cafe, $branch, $session, $order] = $this->openTable();
         $waiter = $this->staffUser(User::ROLE_WAITER, $cafe, $branch);
@@ -37,27 +39,92 @@ class OperationsPanelTest extends TestCase
             ->assertJsonMissingPath('summary.paid_today_cents')
             ->assertJsonPath('orders.0.number', $order->order_number)
             ->assertJsonPath('orders.0.table_name', 'Masa 1')
-            ->assertJsonPath('orders.0.due_cents', 25000);
+            ->assertJsonPath('orders.0.due_cents', 25000)
+            ->assertJsonPath('can_cancel_orders', false);
+
+        Livewire::actingAs($waiter)->test(OrderBoard::class, ['branchId' => $branch->id])
+            ->call('cancel', $order->id, 'Müşteri vazgeçti')
+            ->assertForbidden();
+
+        $this->actingAs($waiter)->postJson(route('staff.orders.status', $order), [
+            'status' => Order::STATUS_CANCELLED,
+            'reason' => 'Müşteri vazgeçti',
+        ])->assertForbidden();
 
         $this->actingAs($waiter)->postJson(route('staff.orders.status', $order), [
             'status' => Order::STATUS_ACCEPTED,
         ])->assertOk()->assertJsonPath('ok', true);
 
+        $this->actingAs($waiter)->postJson(route('staff.orders.status', $order), [
+            'status' => Order::STATUS_CANCELLED,
+            'reason' => 'Müşteri vazgeçti',
+        ])->assertForbidden();
+
+        $this->actingAs($waiter)->postJson(route('staff.orders.status', $order), [
+            'status' => Order::STATUS_READY,
+        ])->assertOk()->assertJsonPath('ok', true);
+
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
-            'status' => Order::STATUS_ACCEPTED,
+            'status' => Order::STATUS_READY,
         ]);
 
         $this->actingAs($waiter)->postJson(route('staff.orders.status', $order), [
             'status' => Order::STATUS_CANCELLED,
             'reason' => 'Müşteri vazgeçti',
-        ])->assertOk();
+        ])->assertForbidden();
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
+            'status' => Order::STATUS_READY,
+            'cancel_reason' => null,
+        ]);
+    }
+
+    public function test_only_cafe_owner_can_cancel_a_pending_order(): void
+    {
+        [$cafe, $branch, , $pendingOrder] = $this->openTable();
+        $waiter = $this->staffUser(User::ROLE_WAITER, $cafe, $branch);
+        $owner = $this->staffUser(User::ROLE_CAFE_OWNER, $cafe, $branch);
+
+        $this->actingAs($waiter)->postJson(route('staff.orders.status', $pendingOrder), [
+            'status' => Order::STATUS_CANCELLED,
+            'reason' => 'Müşteri vazgeçti',
+        ])->assertForbidden();
+
+        $manager = $this->staffUser(User::ROLE_CAFE_MANAGER, $cafe, $branch);
+        $this->actingAs($manager)->postJson(route('manage.orders.status', $pendingOrder), [
+            'status' => Order::STATUS_CANCELLED,
+            'reason' => 'Müşteri vazgeçti',
+        ])->assertForbidden();
+
+        $this->actingAs($owner)->postJson(route('manage.orders.status', $pendingOrder), [
+            'status' => Order::STATUS_CANCELLED,
+            'reason' => 'Müşteri vazgeçti',
+        ])->assertOk()->assertJsonPath('ok', true);
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $pendingOrder->id,
             'status' => Order::STATUS_CANCELLED,
             'cancel_reason' => 'Müşteri vazgeçti',
         ]);
+    }
+
+    public function test_cafe_owner_cannot_cancel_an_order_after_it_leaves_pending(): void
+    {
+        [$cafe, $branch, , $order] = $this->openTable();
+        $owner = $this->staffUser(User::ROLE_CAFE_OWNER, $cafe, $branch);
+
+        foreach ([Order::STATUS_ACCEPTED, Order::STATUS_READY, Order::STATUS_SERVED] as $status) {
+            $order->forceFill(['status' => $status])->save();
+
+            $this->actingAs($owner)->postJson(route('manage.orders.status', $order), [
+                'status' => Order::STATUS_CANCELLED,
+                'reason' => 'Müşteri vazgeçti',
+            ])->assertUnprocessable();
+
+            $this->assertSame($status, $order->fresh()->status);
+        }
     }
 
     public function test_waiter_without_branch_assignment_cannot_read_or_change_orders(): void

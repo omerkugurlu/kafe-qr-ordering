@@ -34,6 +34,7 @@ class WaiterAdisyonTest extends TestCase
         ])->assertRedirect(route('staff.sessions.show', $session->id));
 
         $this->assertSame('150.00', $session->fresh()->dueAmount());
+        $this->assertSame(TableSession::STATUS_OPEN, $session->fresh()->status, 'An adisyon stays open while a balance remains.');
         $this->actingAs($waiter)->post(route('staff.sessions.payments.store', $session->id), [
             'method' => Payment::METHOD_CARD,
             'amount' => '150.00',
@@ -48,6 +49,7 @@ class WaiterAdisyonTest extends TestCase
             'closed_by' => $waiter->id,
         ]);
         $this->assertNotNull($session->fresh()->closed_at);
+        $this->assertSame('Tam ödeme ile otomatik kapatıldı.', $session->fresh()->closing_note);
         $this->assertDatabaseCount('payments', 2);
     }
 
@@ -89,40 +91,44 @@ class WaiterAdisyonTest extends TestCase
         $this->assertDatabaseHas('loyalty_accounts', ['cafe_id' => $cafe->id, 'user_id' => $customer->id, 'points' => 2, 'completed_order_count' => 1]);
         $this->actingAs($waiter)->get(route('staff.sessions.show', $session->id))
             ->assertOk()
-            ->assertSee('Kaydı düzelt');
+            ->assertDontSee('Kaydı düzelt');
         $this->assertDatabaseHas('table_sessions', ['id' => $session->id, 'status' => TableSession::STATUS_CLOSED]);
     }
 
-    public function test_order_with_payment_cannot_be_cancelled_until_payment_is_voided(): void
+    public function test_only_owner_can_void_a_payment_and_waiters_cannot_cancel_orders(): void
     {
         [$cafe, $branch, $session, $servedOrder] = $this->createOpenSession();
-        $pendingOrder = Order::query()->create([
-            'cafe_id' => $cafe->id, 'branch_id' => $branch->id, 'table_session_id' => $session->id,
-            'order_number' => 'PENDING'.uniqid(), 'source' => 'qr', 'status' => Order::STATUS_ACCEPTED,
-            'subtotal' => '25.00', 'discount_total' => '0.00', 'total' => '25.00', 'accepted_at' => now(),
-        ]);
-        $pendingItem = $pendingOrder->items()->create(['name_snapshot' => 'Çay', 'unit_price' => '25.00', 'quantity' => 1, 'line_total' => '25.00']);
+        $servedItem = $servedOrder->items()->firstOrFail();
         $waiter = User::factory()->create(['role' => User::ROLE_WAITER, 'cafe_id' => $cafe->id]);
         $branch->staff()->attach($waiter->id);
 
         $this->actingAs($waiter)->post(route('staff.sessions.payments.store', $session->id), [
-            'method' => Payment::METHOD_CASH, 'amount' => '10.00', 'order_item_id' => $pendingItem->id,
+            'method' => Payment::METHOD_CASH, 'amount' => '10.00', 'order_item_id' => $servedItem->id,
         ])->assertRedirect(route('staff.sessions.show', $session->id));
         Livewire::actingAs($waiter)->test(OrderBoard::class, ['branchId' => $branch->id])
-            ->call('cancel', $pendingOrder->id, 'Müşteri vazgeçti')->assertHasErrors('order');
+            ->call('cancel', $servedOrder->id, 'Müşteri vazgeçti')->assertForbidden();
+
+        $this->actingAs($waiter)->postJson(route('staff.orders.status', $servedOrder), [
+            'status' => Order::STATUS_CANCELLED,
+            'reason' => 'Müşteri vazgeçti',
+        ])->assertForbidden();
 
         $payment = Payment::query()->firstOrFail();
         $this->actingAs($waiter)->post(route('staff.sessions.payments.void', [$session->id, $payment->id]), [
             'reason' => 'Yanlış siparişe kaydedildi',
-        ])->assertRedirect(route('staff.sessions.show', $session->id));
-        Livewire::actingAs($waiter)->test(OrderBoard::class, ['branchId' => $branch->id])
-            ->call('cancel', $pendingOrder->id, 'Müşteri vazgeçti')->assertHasNoErrors();
+        ])->assertForbidden();
+        $this->assertNull($payment->fresh()->voided_at);
 
-        $this->assertDatabaseHas('orders', ['id' => $pendingOrder->id, 'status' => Order::STATUS_CANCELLED]);
+        $owner = User::factory()->create(['role' => User::ROLE_CAFE_OWNER, 'cafe_id' => $cafe->id]);
+        $branch->staff()->attach($owner->id);
+        $this->actingAs($owner)->post(route('staff.sessions.payments.void', [$session->id, $payment->id]), [
+            'reason' => 'Yanlış siparişe kaydedildi',
+        ])->assertRedirect(route('staff.sessions.show', $session->id));
+        $this->assertDatabaseHas('orders', ['id' => $servedOrder->id, 'status' => Order::STATUS_SERVED]);
         $this->assertDatabaseHas('payments', ['id' => $payment->id, 'void_reason' => 'Yanlış siparişe kaydedildi']);
     }
 
-    public function test_waiter_can_correct_their_own_full_payment_and_reopen_the_adisyon(): void
+    public function test_only_owner_can_correct_a_closed_payment_and_reopen_the_adisyon(): void
     {
         [$cafe, $branch, $session, $firstOrder] = $this->createOpenSession();
         $cafe->forceFill(['loyalty_enabled' => true, 'points_per_100' => 1])->save();
@@ -141,7 +147,24 @@ class WaiterAdisyonTest extends TestCase
         $this->assertSame('0.00', $session->fresh()->dueAmount());
         $this->assertDatabaseHas('loyalty_accounts', ['cafe_id' => $cafe->id, 'user_id' => $customer->id, 'points' => 2, 'completed_order_count' => 1]);
 
+        $manager = User::factory()->create(['role' => User::ROLE_CAFE_MANAGER, 'cafe_id' => $cafe->id]);
+        $branch->staff()->attach($manager->id);
+        $this->actingAs($manager)->post(route('staff.sessions.payments.void', [$session->id, $settledPayment->id]), [
+            'reason' => 'Yetkisiz düzeltme',
+        ])->assertForbidden();
+
         $this->actingAs($waiter)->post(route('staff.sessions.payments.void', [$session->id, $settledPayment->id]), [
+            'reason' => 'Yanlışlıkla tahsil edildi',
+        ])->assertForbidden();
+
+        $this->assertNull($settledPayment->fresh()->voided_at);
+        $this->assertDatabaseHas('table_sessions', ['id' => $session->id, 'status' => TableSession::STATUS_CLOSED]);
+        $this->assertDatabaseHas('orders', ['id' => $firstOrder->id, 'status' => Order::STATUS_PAID]);
+        $this->assertDatabaseHas('loyalty_accounts', ['cafe_id' => $cafe->id, 'user_id' => $customer->id, 'points' => 2, 'completed_order_count' => 1]);
+
+        $owner = User::factory()->create(['role' => User::ROLE_CAFE_OWNER, 'cafe_id' => $cafe->id]);
+        $branch->staff()->attach($owner->id);
+        $this->actingAs($owner)->post(route('staff.sessions.payments.void', [$session->id, $settledPayment->id]), [
             'reason' => 'Yanlışlıkla tahsil edildi',
         ])->assertRedirect(route('staff.sessions.show', $session->id));
 
@@ -279,6 +302,7 @@ class WaiterAdisyonTest extends TestCase
     public function test_waiter_can_correct_order_quantities_with_a_reason_and_keep_price_snapshots(): void
     {
         [$cafe, $branch, $session, $order] = $this->createOpenSession();
+        $order->forceFill(['status' => Order::STATUS_PENDING, 'served_at' => null])->save();
         $item = $order->items()->firstOrFail();
         $waiter = User::factory()->create(['role' => User::ROLE_WAITER, 'cafe_id' => $cafe->id]);
         $branch->staff()->attach($waiter->id);
@@ -309,6 +333,29 @@ class WaiterAdisyonTest extends TestCase
             'action' => 'order.corrected',
             'subject_id' => $order->id,
         ]);
+    }
+
+    public function test_waiter_cannot_edit_an_order_after_it_is_accepted(): void
+    {
+        [$cafe, $branch, $session, $order] = $this->createOpenSession();
+        $item = $order->items()->firstOrFail();
+        $waiter = User::factory()->create(['role' => User::ROLE_WAITER, 'cafe_id' => $cafe->id]);
+        $branch->staff()->attach($waiter->id);
+
+        foreach ([Order::STATUS_ACCEPTED, Order::STATUS_READY, Order::STATUS_SERVED] as $status) {
+            $order->forceFill(['status' => $status])->save();
+
+            $this->actingAs($waiter)->post(route('staff.orders.correct', $order), [
+                'items' => [$item->id => ['quantity' => 1]],
+                'reason' => 'Adet yanlış girildi',
+            ])->assertSessionHasErrors('order');
+        }
+
+        $this->actingAs($waiter)->get(route('staff.sessions.show', $session->id))
+            ->assertOk()
+            ->assertDontSee('Siparişi düzelt');
+
+        $this->assertDatabaseHas('order_items', ['id' => $item->id, 'quantity' => 2, 'line_total' => '250.00']);
     }
 
     public function test_waiter_cannot_edit_an_order_after_payment_has_been_recorded(): void

@@ -10,7 +10,7 @@
 
                 <label class="block">
                     <span class="label">E-posta</span>
-                    <input type="email" name="email" required autocomplete="email" value="{{ old('email') }}" class="input">
+                    <input type="email" name="email" required autocomplete="email" value="{{ old('email', request()->query('email')) }}" class="input">
                 </label>
 
                 <label class="block">

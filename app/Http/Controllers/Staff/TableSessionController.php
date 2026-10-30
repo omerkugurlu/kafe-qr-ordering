@@ -286,6 +286,10 @@ class TableSessionController extends Controller
                 throw ValidationException::withMessages(['order' => 'Ödenmiş veya iptal edilmiş sipariş değiştirilemez.']);
             }
 
+            if ($request->user()->role === User::ROLE_WAITER && $lockedOrder->status !== Order::STATUS_PENDING) {
+                throw ValidationException::withMessages(['order' => 'Garson yalnızca onay bekleyen siparişi düzenleyebilir.']);
+            }
+
             if ((float) $lockedOrder->discount_total > 0 || $lockedOrder->coupon_id !== null || $lockedOrder->loyalty_campaign_id !== null) {
                 throw ValidationException::withMessages(['order' => 'İndirimli siparişler geçmişi korumak için bu ekrandan değiştirilemez.']);
             }

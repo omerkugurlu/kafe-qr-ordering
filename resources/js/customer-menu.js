@@ -84,7 +84,8 @@ function initMenu(root, data) {
     let cart = storedCart;
     let orderNote = localStorage.getItem(noteKey) ?? '';
     const qrSessionId = Number(data.session?.id) || null;
-    let orderingAvailable = data.ordering_available === true && qrSessionId !== null;
+    const qrVisitId = typeof data.qr_visit_id === 'string' ? data.qr_visit_id : null;
+    let orderingAvailable = data.ordering_available === true && qrSessionId !== null && qrVisitId !== null;
     let orderWaitingForWaiter = false;
     let coupon = null;
     let loyaltyCampaignId = null;
@@ -1091,6 +1092,7 @@ function initMenu(root, data) {
                 method: 'POST',
                 body: {
                     session_id: qrSessionId,
+                    qr_visit_id: qrVisitId,
                     lines: cart.map((line) => ({
                         product_id: line.productId,
                         quantity: line.quantity,
@@ -1551,6 +1553,9 @@ function initMenu(root, data) {
 
         if (qrSessionId !== null) {
             statusUrl.searchParams.set('session_id', String(qrSessionId));
+        }
+        if (qrVisitId !== null) {
+            statusUrl.searchParams.set('qr_visit_id', qrVisitId);
         }
 
         const response = await apiFetch(statusUrl.toString());

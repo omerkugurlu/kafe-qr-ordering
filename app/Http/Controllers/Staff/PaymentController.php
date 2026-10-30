@@ -122,6 +122,7 @@ class PaymentController extends Controller
 
     public function void(Request $request, int $sessionId, int $paymentId, LoyaltyService $loyalty): RedirectResponse
     {
+        abort_unless($request->user()?->role === User::ROLE_CAFE_OWNER, 403, 'Ödeme kaydını yalnızca kafe sahibi düzeltebilir.');
         $validated = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:160']]);
         $session = TableSession::query()->with('branch')->findOrFail($sessionId);
         Gate::authorize('view', $session->branch);
@@ -131,13 +132,7 @@ class PaymentController extends Controller
             $wasClosed = $locked->status === TableSession::STATUS_CLOSED;
             $payment = $locked->payments()->whereKey($paymentId)->lockForUpdate()->firstOrFail();
 
-            if ($locked->status === TableSession::STATUS_CLOSED) {
-                $canCorrect = $request->user()->hasRole(User::ROLE_CAFE_OWNER, User::ROLE_CAFE_MANAGER)
-                    || $payment->recorded_by === $request->user()->id;
-                abort_unless($canCorrect, 403, 'Kapalı adisyonda yalnızca ödemeyi kaydeden çalışan veya yönetici düzeltme yapabilir.');
-            } else {
-                abort_unless($locked->status === TableSession::STATUS_OPEN, 409);
-            }
+            abort_unless(in_array($locked->status, [TableSession::STATUS_OPEN, TableSession::STATUS_CLOSED], true), 409);
 
             if ($payment->voided_at !== null) {
                 throw ValidationException::withMessages(['payment' => 'Bu ödeme kaydı daha önce iptal edilmiş.']);

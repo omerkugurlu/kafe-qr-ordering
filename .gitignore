@@ -20,9 +20,12 @@
 /.local-media
 /database/turso/local.db
 /.local-e2e.db
+/.local-laravel-e2e-*.sqlite*
+/.local-laravel-e2e-config-*.php
 /playwright-report
 /test-results
 /public/build
+/public/build-laravel-e2e-*/
 /public/fonts-manifest.dev.json
 /public/hot
 /public/storage
