@@ -144,9 +144,10 @@
                 @forelse ($suggestionPool as $recommendationProduct)
                     @php($selectedSuggestions = $recommendationProduct->suggestedProductIds()->all())
                     @php($selectedSuggestionCategories = $recommendationProduct->suggestedCategoryIds()->all())
-                    <details data-recommendation-details data-product-id="{{ $recommendationProduct->id }}" class="rounded-xl border border-line bg-paper">
+                    <div class="flex min-w-0 items-center gap-2 rounded-xl border border-line bg-paper p-2">
+                    <details data-recommendation-details data-product-id="{{ $recommendationProduct->id }}" class="min-w-0 flex-1">
                         <summary class="flex min-h-12 cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-semibold text-ink"><span class="min-w-0 flex-1 truncate">{{ $recommendationProduct->name }}</span><span class="shrink-0 rounded-full bg-sage px-2 py-1 text-[10px] font-bold text-forest">{{ count($selectedSuggestions) + count($selectedSuggestionCategories) }} seçili</span></summary>
-                        <form method="post" action="{{ route('manage.products.recommendations.update', [$branch, $recommendationProduct->id]) }}" class="space-y-3 border-t border-line p-3">
+                        <form id="recommendation-form-{{ $recommendationProduct->id }}" method="post" action="{{ route('manage.products.recommendations.update', [$branch, $recommendationProduct->id]) }}" class="space-y-3 border-t border-line p-3">
                             @csrf @method('PATCH')
                             <div data-suggestion-picker data-selected-suggestions="{{ implode(',', $selectedSuggestions) }}" class="rounded-xl border border-line bg-paper p-3">
                                 <div class="flex items-center justify-between gap-2"><div><p class="text-sm font-bold text-ink">Sepete eklenince öner</p><p class="text-xs text-muted">Bu ürün sepete eklenince gösterilir.</p></div><span data-suggestion-count class="shrink-0 rounded-full bg-sage px-2 py-1 text-[10px] font-bold text-forest">0 seçili</span></div>
@@ -166,9 +167,10 @@
                                 <div class="mt-2 flex gap-2"><button type="button" data-select-visible class="btn btn-secondary btn-sm min-h-9 flex-1 text-[10px]">Bulunanları seç</button><button type="button" data-clear-selection class="btn btn-secondary btn-sm min-h-9 flex-1 text-[10px]">Seçimi temizle</button></div>
                                 <div data-suggestion-category-options class="mt-2 grid max-h-32 gap-1 overflow-y-auto rounded-xl bg-cream/50 p-2 sm:grid-cols-2"><p class="col-span-full py-2 text-[11px] font-medium text-muted">Kategori listesi yükleniyor.</p></div>
                             </div>
-                            <button type="submit" class="btn btn-primary min-h-11 w-full">Bu ürünün önerilerini kaydet</button>
                         </form>
                     </details>
+                    <button type="submit" form="recommendation-form-{{ $recommendationProduct->id }}" class="btn btn-primary min-h-10 shrink-0 px-3 text-xs">Kaydet</button>
+                    </div>
                 @empty<p class="rounded-xl bg-cream p-4 text-sm text-muted">Öneri ayarlamak için önce menüye ürün ekleyin.</p>@endforelse
             </div>
         </section>
