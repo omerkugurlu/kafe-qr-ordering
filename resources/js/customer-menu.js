@@ -342,7 +342,7 @@ function initMenu(root, data) {
         return `<span class="grid ${sizeClass} place-items-center bg-gradient-to-br from-sage to-cream text-forest/50">${coffeeFallback.replace('size-7', iconClass)}</span>`;
     }
 
-    function productCard(product) {
+    function productCard(product, prioritizeImage = false) {
         const unavailable = !product.is_available;
         const optionsHint = product.option_groups.length > 0
             ? `<span class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted">${escapeHtml(strings.customize)}</span>`
@@ -353,7 +353,7 @@ function initMenu(root, data) {
                 <button type="button" class="absolute inset-0 z-0 size-full" data-product-open="${product.id}" aria-label="${escapeHtml(product.name)}" ${unavailable ? 'disabled' : ''}></button>
                 <div class="pointer-events-none relative z-10 flex gap-4 p-4">
                     <div class="relative size-24 shrink-0 overflow-hidden rounded-2xl bg-cream">
-                        ${productImage(product, 'size-24', 'size-7')}
+                        ${productImage(product, 'size-24', 'size-7', prioritizeImage ? 'eager' : 'lazy')}
                         ${product.prep_minutes ? `<span class="absolute bottom-1.5 left-1.5 rounded-full bg-ink/75 px-2 py-0.5 text-[9px] font-bold text-white">${product.prep_minutes} ${escapeHtml(strings.min)}</span>` : ''}
                     </div>
                     <div class="min-w-0 flex-1">
@@ -478,7 +478,7 @@ function initMenu(root, data) {
             ? categories
             : categories.filter((category) => String(category.id) === activeCategory);
 
-        root.innerHTML = visible.map((category) => {
+        root.innerHTML = visible.map((category, categoryIndex) => {
             const items = category.product_ids
                 .map((id) => productsById(id))
                 .filter(Boolean);
@@ -496,7 +496,7 @@ function initMenu(root, data) {
                         </div>
                         <span class="shrink-0 text-[11px] font-bold text-muted">${items.length} ${escapeHtml(strings.items_count.replace(':count', '').trim())}</span>
                     </div>
-                    <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">${items.map(productCard).join('')}</div>
+                    <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">${items.map((product, index) => productCard(product, categoryIndex === 0 && index < 2)).join('')}</div>
                 </section>
             `;
         }).join('');
