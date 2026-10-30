@@ -179,6 +179,8 @@ class OrderController extends Controller
             if (
                 $visitSessionId !== (int) $session->id
                 || ! Str::isUuid($visitId)
+                || ! is_string($session->qr_visit_token_hash)
+                || ! hash_equals($session->qr_visit_token_hash, hash('sha256', $visitId))
                 || ($providedVisitId !== null && ! hash_equals($visitId, $providedVisitId))
             ) {
                 throw ValidationException::withMessages([
@@ -529,6 +531,8 @@ class OrderController extends Controller
             return $this->customerLoginRequiredResponse();
         }
 
+        abort_unless($this->hasActiveQrVisit($request, $table), 403, 'QR ziyareti sona erdi. Masadaki QR kodunu yeniden okutun.');
+
         $coupon = Coupon::query()
             ->where('cafe_id', $table->branch->cafe_id)
             ->where('code', Coupon::normalizeCode($validated['code']))
@@ -558,7 +562,7 @@ class OrderController extends Controller
             return $this->customerLoginRequiredResponse();
         }
 
-        $result = DB::transaction(function () use ($table, $validated): array {
+        $result = DB::transaction(function () use ($table, $validated, $request): array {
             $lockedTable = DiningTable::query()
                 ->whereKey($table->id)
                 ->lockForUpdate()
@@ -571,6 +575,10 @@ class OrderController extends Controller
                 ->first();
 
             if ($session === null) {
+                return ['active_session' => false, 'eligible' => false, 'duplicate' => false, 'retry_after_seconds' => 0];
+            }
+
+            if (! $this->visitMatchesSession($request, $lockedTable, $session)) {
                 return ['active_session' => false, 'eligible' => false, 'duplicate' => false, 'retry_after_seconds' => 0];
             }
 
@@ -674,6 +682,25 @@ class OrderController extends Controller
         return app(SubscriptionService::class)->featureEnabled($table->branch->cafe, 'customer_accounts')
             && $table->branch->cafe->registration_policy === Cafe::POLICY_REQUIRED
             && ($request->user()?->role !== User::ROLE_CUSTOMER || ! $request->user()->is_active);
+    }
+
+    private function hasActiveQrVisit(Request $request, DiningTable $table): bool
+    {
+        $session = $this->currentSession($table);
+
+        return $session !== null && $this->visitMatchesSession($request, $table, $session);
+    }
+
+    private function visitMatchesSession(Request $request, DiningTable $table, TableSession $session): bool
+    {
+        $visit = $request->session()->get('qr_visits.'.$table->id);
+        $visitId = is_array($visit) ? (string) ($visit['id'] ?? '') : '';
+
+        return $session->status === TableSession::STATUS_OPEN
+            && (int) ($visit['session_id'] ?? 0) === (int) $session->id
+            && Str::isUuid($visitId)
+            && is_string($session->qr_visit_token_hash)
+            && hash_equals($session->qr_visit_token_hash, hash('sha256', $visitId));
     }
 
     private function redirectToCustomerLogin(string $token, string $message): RedirectResponse

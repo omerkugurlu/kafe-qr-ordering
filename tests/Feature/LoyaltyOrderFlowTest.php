@@ -57,6 +57,7 @@ class LoyaltyOrderFlowTest extends TestCase
             'minimum_order_total' => '0.00', 'is_active' => true,
         ]);
 
+        $this->actingAs($customer)->get(route('customer.menu', $table->token()).'?qr_scan=1')->assertRedirect(route('customer.menu', $table->token()));
         $menuResponse = $this->actingAs($customer)->get(route('customer.menu', $table->token()));
         $menuResponse->assertOk()->assertSee('Ücretsiz ürün seçimi');
         preg_match('~<script type="application/json" id="menu-data">(.*?)</script>~s', $menuResponse->getContent(), $matches);
@@ -76,8 +77,8 @@ class LoyaltyOrderFlowTest extends TestCase
         $this->assertSame(2, $order->items()->count());
         $this->assertDatabaseHas('order_items', [
             'order_id' => $order->id,
-            'menu_product_id' => $freeProduct->id,
-            'name_snapshot' => 'Kurabiye',
+            'menu_product_id' => $alternateFreeProduct->id,
+            'name_snapshot' => 'Türk kahvesi',
             'unit_price' => '0.00',
             'quantity' => 1,
             'line_total' => '0.00',
@@ -118,6 +119,7 @@ class LoyaltyOrderFlowTest extends TestCase
             'minimum_order_total' => '0.00', 'is_active' => true,
         ]);
 
+        $this->actingAs($customer)->get(route('customer.menu', $table->token()).'?qr_scan=1')->assertRedirect(route('customer.menu', $table->token()));
         $menuResponse = $this->actingAs($customer)->get(route('customer.menu', $table->token()));
         $menuResponse->assertSee('100 puan indirimi');
         preg_match('~<script type="application/json" id="menu-data">(.*?)</script>~s', $menuResponse->getContent(), $matches);
@@ -138,7 +140,8 @@ class LoyaltyOrderFlowTest extends TestCase
         Livewire::actingAs($waiter)->test(OrderBoard::class, ['branchId' => $branch->id])->call('accept', $order->id)->assertHasNoErrors();
         $session = $order->tableSession;
         $this->actingAs($waiter)->post(route('staff.sessions.payments.store', $session->id), [
-            'method' => Payment::METHOD_CARD, 'amount' => '220.00',
+            'method' => Payment::METHOD_CARD,
+            'items' => [$order->items()->firstOrFail()->id => 1],
         ])->assertRedirect(route('staff.branch', $branch->id));
 
         $this->assertDatabaseHas('orders', ['id' => $order->id, 'status' => Order::STATUS_PAID]);

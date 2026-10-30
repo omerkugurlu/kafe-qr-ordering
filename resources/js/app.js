@@ -718,7 +718,7 @@ document.querySelectorAll('[data-options-form]').forEach((form) => {
 
 function initPaymentPicker(root) {
     const totalOutput = root.querySelector('[data-payment-total]');
-    const countOutput = root.querySelector('[data-payment-selected-count]');
+    const countOutput = root.querySelector('[data-payment-selected-summary]');
     const changeOutput = root.querySelector('[data-payment-change]');
     const cashWrap = root.querySelector('[data-cash-received-wrap]');
     const cashInput = root.querySelector('[data-cash-received]');
@@ -727,6 +727,13 @@ function initPaymentPicker(root) {
     const emptyResults = root.querySelector('[data-payment-empty-results]');
     const itemRows = [...root.querySelectorAll('[data-payment-item]')];
     const methodInputs = [...root.querySelectorAll('input[name="method"]')];
+    const modeInputs = [...root.querySelectorAll('[data-payment-mode]')];
+    const itemsFieldset = root.querySelector('[data-payment-items-fieldset]');
+    const splitPanel = root.querySelector('[data-payment-split-panel]');
+    const splitPeopleInputs = [...root.querySelectorAll('[data-split-people]')];
+    const splitShareOutput = root.querySelector('[data-split-share]');
+    const splitRemainingOutput = root.querySelector('[data-split-remaining]');
+    const splitDescription = root.querySelector('[data-split-description]');
     const submit = root.querySelector('[data-payment-submit]');
     const canSubmit = !submit?.disabled;
     const formatter = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -741,6 +748,22 @@ function initPaymentPicker(root) {
         let selectedQuantity = 0;
         const selectedItems = [];
         const isCash = root.querySelector('input[name="method"]:checked')?.value === 'cash';
+        const isSplitMode = root.querySelector('[data-payment-mode]:checked')?.value === 'split';
+        const activeSplit = root.dataset.splitActive === 'true';
+        const fixedPeopleCount = Number.parseInt(root.dataset.splitCount || '0', 10);
+        const paidShares = Number.parseInt(root.dataset.splitPaid || '0', 10);
+        const selectedPeopleCount = Number.parseInt(root.querySelector('[data-split-people]:checked')?.value || '0', 10);
+        const peopleCount = activeSplit ? fixedPeopleCount : selectedPeopleCount;
+        const remainingPeople = Math.max(0, peopleCount - paidShares);
+
+        if (itemsFieldset) {
+            itemsFieldset.disabled = isSplitMode;
+            itemsFieldset.hidden = isSplitMode;
+        }
+        if (splitPanel) splitPanel.hidden = !isSplitMode;
+        splitPeopleInputs.forEach((input) => {
+            input.disabled = !isSplitMode || (activeSplit && input.value !== String(fixedPeopleCount));
+        });
 
         itemRows.forEach((row) => {
             const checkbox = row.querySelector('[data-payment-item-check]');
@@ -761,9 +784,28 @@ function initPaymentPicker(root) {
             }
         });
 
+        if (isSplitMode) {
+            const splitTargetCents = Number.parseInt(root.dataset.splitTargetCents || root.dataset.splitDueCents || root.dataset.dueCents || '0', 10);
+            const paidSplitCents = Number.parseInt(root.dataset.splitPaidCents || '0', 10);
+            const remainingSplitCents = Math.max(0, splitTargetCents - paidSplitCents);
+            totalCents = remainingPeople > 0 ? Math.ceil(remainingSplitCents / remainingPeople) : 0;
+            selectedQuantity = 0;
+            countOutput.textContent = remainingPeople > 0 ? `${paidShares + 1} / ${peopleCount} kişi payı` : 'Hesap bölme tamamlandı';
+            if (splitShareOutput) splitShareOutput.textContent = money(totalCents);
+            if (splitRemainingOutput) splitRemainingOutput.textContent = remainingPeople > 0 ? `Kalan ${remainingPeople} kişi` : 'Bölme tamamlandı';
+            if (splitDescription && !activeSplit) splitDescription.textContent = `${peopleCount} kişilik hesap. Son payda kalan kuruş farkı otomatik dengelenir.`;
+            itemSummary.textContent = activeSplit
+                ? `Kişi başı tahsilat · ${paidShares + 1} / ${peopleCount}`
+                : `Toplam hesap ${peopleCount} kişiye bölünüyor.`;
+        } else if (splitShareOutput) {
+            splitShareOutput.textContent = money(0);
+        }
+
         totalOutput.textContent = money(totalCents);
-        countOutput.textContent = String(selectedQuantity);
-        itemSummary.textContent = selectedItems.length > 0 ? selectedItems.join(' · ') : 'Ödenecek ürünleri seç.';
+        if (!isSplitMode) {
+            countOutput.textContent = `${selectedQuantity} adet seçildi`;
+            itemSummary.textContent = selectedItems.length > 0 ? selectedItems.join(' · ') : 'Ödenecek ürünleri seç.';
+        }
         const cashReceivedCents = Math.round((Number(cashInput?.value) || 0) * 100);
         const cashShortfallCents = Math.max(0, totalCents - cashReceivedCents);
         changeOutput.textContent = isCash
@@ -775,7 +817,7 @@ function initPaymentPicker(root) {
         changeOutput.classList.toggle('text-success', !isCash || cashShortfallCents === 0);
         cashWrap.hidden = !isCash;
         cashInput.disabled = !isCash;
-        submit.disabled = !canSubmit || totalCents <= 0 || (isCash && cashShortfallCents > 0);
+        submit.disabled = !canSubmit || totalCents <= 0 || (isCash && cashShortfallCents > 0) || (isSplitMode && remainingPeople <= 0);
     };
 
     root.querySelectorAll('[data-payment-item-check]').forEach((checkbox) => {
@@ -787,6 +829,8 @@ function initPaymentPicker(root) {
     });
     cashInput?.addEventListener('input', update);
     methodInputs.forEach((input) => input.addEventListener('change', update));
+    modeInputs.forEach((input) => input.addEventListener('change', update));
+    splitPeopleInputs.forEach((input) => input.addEventListener('change', update));
     searchInput?.addEventListener('input', () => {
         const query = searchInput.value.trim().toLocaleLowerCase('tr-TR');
         let visibleCount = 0;

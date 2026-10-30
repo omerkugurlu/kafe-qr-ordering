@@ -12,8 +12,8 @@ use App\Models\MenuProduct;
 use App\Models\Order;
 use App\Models\TableSession;
 use App\Models\User;
-use App\Services\Money;
 use App\Services\LoyaltyService;
+use App\Services\Money;
 use App\Services\OrderPresenter;
 use App\Services\SubscriptionService;
 use Illuminate\Http\RedirectResponse;
@@ -48,7 +48,7 @@ class MenuController extends Controller
 
         if ($customerAccountsEnabled && $cafe->registration_policy === Cafe::POLICY_REQUIRED && $customer === null) {
             return redirect()
-                ->route('customer.login', $token)
+                ->route('customer.login', ['token' => $token, 'qr_scan' => $request->boolean('qr_scan') ? 1 : null])
                 ->with('status', __('customer.login_required_title'));
         }
 
@@ -143,6 +143,14 @@ class MenuController extends Controller
         $session = $this->startOrFindQrSession($table, $request);
         $qrVisit = $request->session()->get('qr_visits.'.$table->id);
 
+        if ($request->boolean('qr_scan') && $session !== null && is_array($qrVisit)) {
+            return redirect()->route('customer.menu', $token);
+        }
+
+        if ($request->boolean('qr_scan') && $request->attributes->get('qr_visit_blocked')) {
+            return redirect()->route('customer.menu', $token)->with('status', 'Bu masada başka bir telefonla açık QR ziyareti var. Garsondan yardım isteyin.');
+        }
+
         $sessionPayload = $session !== null ? $presenter->session($session) : null;
 
         $loyalty = null;
@@ -168,7 +176,7 @@ class MenuController extends Controller
                             ->filter(fn (MenuProduct $product): bool => ! $product->optionGroups->contains(fn ($group): bool => $group->is_active && $group->min_selections > 0))
                             ->isNotEmpty();
                 })
-                ->map(function (LoyaltyCampaign $campaign) use ($allProducts, $availableCampaignIds): array {
+                ->map(function (LoyaltyCampaign $campaign) use ($allProducts, $availableCampaignIds, $branch): array {
                     $rewardProducts = $campaign->reward_type === LoyaltyCampaign::REWARD_PRODUCT
                         ? $allProducts->whereIn('id', $campaign->rewardProductIds())
                             ->filter(fn (MenuProduct $product): bool => ! $product->optionGroups->contains(fn ($group): bool => $group->is_active && $group->min_selections > 0))
@@ -254,6 +262,7 @@ class MenuController extends Controller
                 && $session->qr_ordering_enabled
                 && is_array($qrVisit)
                 && (int) ($qrVisit['session_id'] ?? 0) === (int) $session->id
+                && hash_equals((string) $session->qr_visit_token_hash, hash('sha256', (string) ($qrVisit['id'] ?? '')))
                 && ! ($sessionPayload['qr_order_pending'] ?? false),
             'loyalty' => $loyalty,
             'urls' => [
@@ -298,8 +307,25 @@ class MenuController extends Controller
         $hasValidVisit = is_array($qrVisit)
             && (int) ($qrVisit['session_id'] ?? 0) > 0
             && Str::isUuid((string) ($qrVisit['id'] ?? ''));
+        $isQrScan = $request->boolean('qr_scan');
 
-        $session = DB::transaction(function () use ($table, $request, $hasValidVisit, $qrVisit): ?TableSession {
+        if (! $isQrScan) {
+            if ($hasValidVisit) {
+                $session = TableSession::query()
+                    ->whereKey((int) $qrVisit['session_id'])
+                    ->where('dining_table_id', $table->id)
+                    ->where('status', TableSession::STATUS_OPEN)
+                    ->first();
+
+                return $session !== null
+                    && is_string($session->qr_visit_token_hash)
+                    && hash_equals($session->qr_visit_token_hash, hash('sha256', (string) $qrVisit['id']))
+                    ? $session
+                    : null;
+            }
+        }
+
+        $result = DB::transaction(function () use ($table, $request, $hasValidVisit, $qrVisit): array {
             $lockedTable = DiningTable::query()->whereKey($table->id)->lockForUpdate()->firstOrFail();
             $branch = $lockedTable->branch()->lockForUpdate()->firstOrFail();
             $cafe = $branch->cafe()->lockForUpdate()->firstOrFail();
@@ -317,18 +343,37 @@ class MenuController extends Controller
                 ->first();
 
             if ($session !== null) {
-                if ($hasValidVisit && (int) $qrVisit['session_id'] !== (int) $session->id) {
-                    return null;
+                $candidateVisitId = $hasValidVisit && (int) ($qrVisit['session_id'] ?? 0) === (int) $session->id
+                    ? (string) $qrVisit['id']
+                    : (string) Str::uuid();
+                $ownsVisit = $hasValidVisit
+                    && (int) ($qrVisit['session_id'] ?? 0) === (int) $session->id
+                    && is_string($session->qr_visit_token_hash)
+                    && hash_equals($session->qr_visit_token_hash, hash('sha256', $candidateVisitId));
+
+                if ($session->qr_visit_token_hash !== null && ! $ownsVisit) {
+                    return ['session' => null, 'visit_id' => null, 'blocked' => true];
                 }
 
-                return $session;
+                if ($session->qr_visit_token_hash === null) {
+                    $session->forceFill([
+                        'qr_visit_token_hash' => hash('sha256', $candidateVisitId),
+                        'qr_visit_metadata' => $this->visitMetadata($request),
+                    ])->save();
+                }
+
+                return ['session' => $session, 'visit_id' => $candidateVisitId, 'blocked' => false];
             }
+
+            $candidateVisitId = (string) Str::uuid();
 
             $session = TableSession::query()->create([
                 'branch_id' => $branch->id,
                 'dining_table_id' => $lockedTable->id,
                 'status' => TableSession::STATUS_OPEN,
                 'qr_ordering_enabled' => true,
+                'qr_visit_token_hash' => hash('sha256', $candidateVisitId),
+                'qr_visit_metadata' => $this->visitMetadata($request),
                 'opened_by' => null,
                 'opened_at' => now(),
             ]);
@@ -344,26 +389,30 @@ class MenuController extends Controller
                 'ip_address' => $request->ip(),
             ]);
 
-            return $session;
+            return ['session' => $session, 'visit_id' => $candidateVisitId, 'blocked' => false];
         });
 
-        if ($session === null) {
+        if ($result['blocked']) {
+            $request->attributes->set('qr_visit_blocked', true);
+
             return null;
         }
 
-        $qrVisit = $request->session()->get($visitKey);
-
-        if (
-            ! is_array($qrVisit)
-            || (int) ($qrVisit['session_id'] ?? 0) !== (int) $session->id
-            || ! Str::isUuid((string) ($qrVisit['id'] ?? ''))
-        ) {
-            // A new QR seating gets a fresh visit ID for this browser.
-            // Requests carrying the previous session ID or visit ID remain invalid.
-            $qrVisit = ['session_id' => $session->id, 'id' => (string) Str::uuid()];
-            $request->session()->put($visitKey, $qrVisit);
-        }
+        $session = $result['session'];
+        $request->session()->put($visitKey, ['session_id' => $session->id, 'id' => $result['visit_id']]);
 
         return $session;
+    }
+
+    /** @return array{issued_at: string, ip_hash: string|null, user_agent: string|null} */
+    private function visitMetadata(Request $request): array
+    {
+        $ip = $request->ip();
+
+        return [
+            'issued_at' => now()->toIso8601String(),
+            'ip_hash' => $ip !== null ? hash_hmac('sha256', $ip, (string) config('app.key')) : null,
+            'user_agent' => $request->userAgent() !== null ? mb_substr($request->userAgent(), 0, 500) : null,
+        ];
     }
 }

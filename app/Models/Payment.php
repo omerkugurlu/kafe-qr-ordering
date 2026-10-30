@@ -24,6 +24,8 @@ class Payment extends Model
         'cash_received',
         'change_amount',
         'person_label',
+        'split_group_id',
+        'split_person_number',
         'recorded_at',
         'voided_at',
         'void_reason',
@@ -35,6 +37,7 @@ class Payment extends Model
             'amount' => 'decimal:2',
             'cash_received' => 'decimal:2',
             'change_amount' => 'decimal:2',
+            'split_person_number' => 'integer',
             'recorded_at' => 'datetime',
             'voided_at' => 'datetime',
         ];
@@ -58,5 +61,10 @@ class Payment extends Model
     public function allocations(): HasMany
     {
         return $this->hasMany(PaymentAllocation::class)->orderBy('id');
+    }
+
+    public function splitGroup(): BelongsTo
+    {
+        return $this->belongsTo(PaymentSplitGroup::class, 'split_group_id');
     }
 }

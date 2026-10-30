@@ -51,7 +51,7 @@ class CustomerSessionController extends Controller
 
         $request->session()->regenerate();
 
-        return redirect()->intended(route('customer.menu', $token));
+        return redirect()->intended(route('customer.menu', ['token' => $token, 'qr_scan' => 1]));
     }
 
     /** @return array{Cafe, DiningTable} */

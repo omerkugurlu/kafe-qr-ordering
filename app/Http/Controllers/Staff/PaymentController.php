@@ -7,6 +7,7 @@ use App\Models\ActivityLog;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Payment;
+use App\Models\PaymentSplitGroup;
 use App\Models\TableSession;
 use App\Models\User;
 use App\Services\LoyaltyService;
@@ -18,6 +19,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -27,66 +29,113 @@ class PaymentController extends Controller
     {
         $validated = $request->validate([
             'method' => ['required', Rule::in([Payment::METHOD_CASH, Payment::METHOD_CARD])],
-            'items' => ['required', 'array', 'min:1', 'max:100'],
+            'items' => ['sometimes', 'array', 'max:100'],
             'items.*' => ['required', 'integer', 'min:1', 'max:65535'],
+            'split_people' => ['nullable', Rule::in([2, 4])],
             'cash_received' => ['required_if:method,cash', 'nullable', 'numeric', 'gt:0', 'max:1000000', 'decimal:0,2'],
             'person_label' => ['nullable', 'string', 'max:80'],
         ]);
+        $isSplitPayment = isset($validated['split_people']);
+        if ($isSplitPayment === ! empty($validated['items'] ?? [])) {
+            throw ValidationException::withMessages(['items' => 'Ürün seçimiyle kişi sayısına bölme seçeneklerinden yalnızca birini kullanın.']);
+        }
         $session = TableSession::query()->with('branch')->findOrFail($sessionId);
         Gate::authorize('view', $session->branch);
         $closed = false;
         $amountCents = 0;
         $changeCents = 0;
 
-        DB::transaction(function () use ($session, $request, $validated, $settlement, $serviceRequests, $paymentAllocation, &$closed, &$amountCents, &$changeCents): void {
+        DB::transaction(function () use ($session, $request, $validated, $isSplitPayment, $settlement, $serviceRequests, $paymentAllocation, &$closed, &$amountCents, &$changeCents): void {
             $locked = TableSession::query()->with('branch')->whereKey($session->id)->lockForUpdate()->firstOrFail();
             abort_unless($locked->status === TableSession::STATUS_OPEN, 409);
             $dueCents = $locked->dueAmountCents();
+            $splitDueCents = array_sum($paymentAllocation->itemBalances($locked));
 
             if ($dueCents === 0) {
                 throw ValidationException::withMessages(['items' => 'Bu adisyonda tahsil edilecek tutar kalmadı.']);
             }
 
-            $allocations = collect($validated['items'])
-                ->mapWithKeys(fn ($quantity, $id): array => [(int) $id => (int) $quantity])
-                ->all();
-            $items = OrderItem::query()
-                ->whereIn('id', array_keys($allocations))
-                ->whereHas('order', fn ($query) => $query
-                    ->where('table_session_id', $locked->id)
-                    ->whereIn('status', [Order::STATUS_ACCEPTED, Order::STATUS_READY, Order::STATUS_SERVED]))
-                ->get()
-                ->keyBy('id');
-
-            if ($items->count() !== count($allocations)) {
-                throw ValidationException::withMessages(['items' => 'Seçilen ürünlerden biri bu adisyonda bulunmuyor. Sayfayı yenileyip tekrar deneyin.']);
-            }
-
-            $itemBalances = $paymentAllocation->itemBalances($locked);
             $paymentLines = [];
-            foreach ($allocations as $itemId => $quantity) {
-                $item = $items->get($itemId);
-                $itemDueCents = $itemBalances[$itemId] ?? 0;
-                $unitCents = Money::toCents((string) $item->unit_price);
-                $availableQuantity = $unitCents > 0
-                    ? min($item->quantity, intdiv($itemDueCents + $unitCents - 1, $unitCents))
-                    : 0;
+            $splitGroup = null;
+            $splitPersonNumber = null;
 
-                if ($quantity > $availableQuantity) {
-                    throw ValidationException::withMessages(['items' => 'Seçilen ürün adedi kalan adetten fazla. Sayfayı yenileyip tekrar deneyin.']);
+            if ($isSplitPayment) {
+                $splitGroup = $locked->paymentSplitGroups()->whereNull('closed_at')->lockForUpdate()->latest('created_at')->first();
+                if ($splitGroup !== null && (int) $splitGroup->people_count !== (int) $validated['split_people']) {
+                    throw ValidationException::withMessages(['split_people' => 'Açık hesap bölme işlemi farklı kişi sayısıyla tamamlanmalıdır.']);
                 }
 
-                $lineCents = min($itemDueCents, $unitCents * $quantity);
-                if ($lineCents <= 0) {
-                    throw ValidationException::withMessages(['items' => 'Ödenecek tutarı olan ürünleri seçin.']);
+                if ($splitGroup === null) {
+                    if ($splitDueCents <= 0) {
+                        throw ValidationException::withMessages(['split_people' => 'Ödemeye hazır ürün bulunmuyor. Siparişlerin kabul edilmesini bekleyin.']);
+                    }
+
+                    $splitGroup = $locked->paymentSplitGroups()->create([
+                        'id' => (string) Str::uuid(),
+                        'people_count' => (int) $validated['split_people'],
+                        'initial_amount' => Money::toDecimal($splitDueCents),
+                        'created_by' => $request->user()->id,
+                    ]);
                 }
 
-                $paymentLines[] = ['item' => $item, 'quantity' => $quantity, 'amount_cents' => $lineCents];
-                $amountCents += $lineCents;
+                $paidShares = $splitGroup->payments()->whereNull('voided_at')->count();
+                $remainingPeople = (int) $splitGroup->people_count - $paidShares;
+                if ($remainingPeople < 1) {
+                    throw ValidationException::withMessages(['split_people' => 'Bu hesap bölme tamamlandı. Kalan tutar varsa yeni bir bölme başlatın.']);
+                }
+
+                $paidSplitCents = Money::toCents((string) $splitGroup->payments()->whereNull('voided_at')->sum('amount'));
+                $splitTargetRemainingCents = max(0, Money::toCents((string) $splitGroup->initial_amount) - $paidSplitCents);
+                $shareCents = intdiv($splitTargetRemainingCents + $remainingPeople - 1, $remainingPeople);
+                $amountCents = min($splitDueCents, $shareCents);
+                $splitPersonNumber = $paidShares + 1;
+            } else {
+                if ($locked->paymentSplitGroups()->whereNull('closed_at')->exists()) {
+                    throw ValidationException::withMessages(['items' => 'Kişi başı bölme başladı. Önce bu bölmeyi tamamlayın.']);
+                }
+
+                $allocations = collect($validated['items'])
+                    ->mapWithKeys(fn ($quantity, $id): array => [(int) $id => (int) $quantity])
+                    ->all();
+                $items = OrderItem::query()
+                    ->whereIn('id', array_keys($allocations))
+                    ->whereHas('order', fn ($query) => $query
+                        ->where('table_session_id', $locked->id)
+                        ->whereIn('status', [Order::STATUS_ACCEPTED, Order::STATUS_READY, Order::STATUS_SERVED]))
+                    ->get()
+                    ->keyBy('id');
+
+                if ($items->count() !== count($allocations)) {
+                    throw ValidationException::withMessages(['items' => 'Seçilen ürünlerden biri bu adisyonda bulunmuyor. Sayfayı yenileyip tekrar deneyin.']);
+                }
+
+                $itemBalances = $paymentAllocation->itemBalances($locked);
+                foreach ($allocations as $itemId => $quantity) {
+                    $item = $items->get($itemId);
+                    $itemDueCents = $itemBalances[$itemId] ?? 0;
+                    $unitCents = Money::toCents((string) $item->unit_price);
+                    $availableQuantity = $unitCents > 0
+                        ? min($item->quantity, intdiv($itemDueCents + $unitCents - 1, $unitCents))
+                        : 0;
+
+                    if ($quantity > $availableQuantity) {
+                        throw ValidationException::withMessages(['items' => 'Seçilen ürün adedi kalan adetten fazla. Sayfayı yenileyip tekrar deneyin.']);
+                    }
+
+                    $lineCents = min($itemDueCents, $unitCents * $quantity);
+                    if ($lineCents <= 0) {
+                        throw ValidationException::withMessages(['items' => 'Ödenecek tutarı olan ürünleri seçin.']);
+                    }
+
+                    $paymentLines[] = ['item' => $item, 'quantity' => $quantity, 'amount_cents' => $lineCents];
+                    $amountCents += $lineCents;
+                }
             }
 
             if ($amountCents <= 0 || $amountCents > $dueCents) {
-                throw ValidationException::withMessages(['items' => 'Seçilen ürünlerin tutarı kalan adisyon tutarını aşamaz.']);
+                throw ValidationException::withMessages([$isSplitPayment ? 'split_people' : 'items' => $isSplitPayment
+                    ? 'Hesap payı tahsil edilebilir kalan tutarı aşamaz.'
+                    : 'Seçilen ürünlerin tutarı kalan adisyon tutarını aşamaz.']);
             }
             if ($amountCents > 100_000_000) {
                 throw ValidationException::withMessages(['items' => 'Tek tahsilat 1.000.000 TL’yi geçemez.']);
@@ -111,20 +160,30 @@ class PaymentController extends Controller
                 'cash_received' => $cashReceivedCents !== null ? Money::toDecimal($cashReceivedCents) : null,
                 'change_amount' => Money::toDecimal($changeCents),
                 'person_label' => $validated['person_label'] ?? null,
+                'split_group_id' => $splitGroup?->id,
+                'split_person_number' => $splitPersonNumber,
                 'recorded_at' => $recordedAt,
             ]);
-            $payment->allocations()->createMany(collect($paymentLines)->map(fn (array $line): array => [
-                'order_item_id' => $line['item']->id,
-                'quantity' => $line['quantity'],
-                'amount' => Money::toDecimal($line['amount_cents']),
-            ])->all());
+            if ($paymentLines !== []) {
+                $payment->allocations()->createMany(collect($paymentLines)->map(fn (array $line): array => [
+                    'order_item_id' => $line['item']->id,
+                    'quantity' => $line['quantity'],
+                    'amount' => Money::toDecimal($line['amount_cents']),
+                ])->all());
+            }
+
+            if ($splitGroup !== null && $splitPersonNumber >= (int) $splitGroup->people_count) {
+                $splitGroup->forceFill(['closed_at' => now()])->save();
+            }
 
             $settled = $settlement->settleServedOrders($locked);
 
             if ($settled) {
+                $locked->paymentSplitGroups()->whereNull('closed_at')->update(['closed_at' => now()]);
                 $locked->forceFill([
                     'status' => TableSession::STATUS_CLOSED,
                     'qr_ordering_enabled' => false,
+                    'qr_visit_token_hash' => null,
                     'closed_by' => $request->user()->id,
                     'closed_at' => now(),
                     'closing_note' => 'Tam ödeme ile otomatik kapatıldı.',
@@ -156,6 +215,8 @@ class PaymentController extends Controller
                     'method' => $payment->method,
                     'amount' => $payment->amount,
                     'person_label' => $payment->person_label,
+                    'split_group_id' => $payment->split_group_id,
+                    'split_person_number' => $payment->split_person_number,
                     'cash_received' => $payment->cash_received,
                     'change_given' => $payment->change_amount,
                     'allocations' => collect($paymentLines)->map(fn (array $line): array => [
@@ -231,6 +292,9 @@ class PaymentController extends Controller
             }
 
             $payment->forceFill(['voided_at' => now(), 'void_reason' => trim($validated['reason'])])->save();
+            if ($payment->split_group_id !== null) {
+                PaymentSplitGroup::query()->whereKey($payment->split_group_id)->update(['closed_at' => null]);
+            }
 
             if ($locked->status === TableSession::STATUS_CLOSED && $locked->dueAmountCents() > 0) {
                 $affectedOrders = $locked->orders()->where('status', Order::STATUS_PAID)->lockForUpdate()->get();

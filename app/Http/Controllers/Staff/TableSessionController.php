@@ -91,12 +91,16 @@ class TableSessionController extends Controller
             'payments.recorder',
             'payments.orderItem',
             'payments.allocations.orderItem',
+            'payments.splitGroup',
         ])->findOrFail($sessionId);
         Gate::authorize('view', $session->branch);
 
         $dueCents = $session->dueAmountCents();
         $activePayments = $session->payments->whereNull('voided_at');
         $itemDueCents = $paymentAllocation->itemBalances($session);
+        $splitDueCents = array_sum($itemDueCents);
+        $activeSplitGroup = $session->paymentSplitGroups()->with('payments')->whereNull('closed_at')->latest('created_at')->first();
+        $splitPaidCount = $activeSplitGroup?->payments->whereNull('voided_at')->count() ?? 0;
 
         $branch = $session->branch;
         $branchMenuId = $branch->uses_shared_menu ? null : $branch->id;
@@ -112,7 +116,7 @@ class TableSessionController extends Controller
             $category->products->filter(fn ($product) => $product->isAvailableAt($branch))->values(),
         ));
 
-        return view('staff.session', compact('session', 'categories', 'dueCents', 'itemDueCents', 'activePayments'));
+        return view('staff.session', compact('session', 'categories', 'dueCents', 'splitDueCents', 'itemDueCents', 'activePayments', 'activeSplitGroup', 'splitPaidCount'));
     }
 
     public function setQrOrdering(Request $request, int $sessionId): RedirectResponse
@@ -390,6 +394,7 @@ class TableSessionController extends Controller
             $locked->forceFill([
                 'status' => TableSession::STATUS_CLOSED,
                 'qr_ordering_enabled' => false,
+                'qr_visit_token_hash' => null,
                 'closed_by' => $request->user()->id,
                 'closed_at' => now(),
                 'closing_note' => $validated['closing_note'] ?? null,

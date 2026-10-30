@@ -24,6 +24,7 @@ class QrOrderingFlowTest extends TestCase
         $this->assertSame(hash('sha256', $token), $table->public_token_hash);
         $this->assertTrue($table->is_active && $branch->is_active && $cafe->status === Cafe::STATUS_ACTIVE);
 
+        // Existing printed QR codes without the new query flag still claim a visit on a fresh device.
         $menuResponse = $this->get(route('customer.menu', $token));
         $menuResponse
             ->assertOk()
@@ -35,6 +36,10 @@ class QrOrderingFlowTest extends TestCase
         $visitId = $menuData['qr_visit_id'] ?? null;
         $this->assertIsString($visitId);
         $this->assertTrue(Str::isUuid($visitId));
+        $this->assertSame(hash('sha256', $visitId), $session->qr_visit_token_hash);
+        $this->assertNotEmpty($session->qr_visit_metadata['issued_at'] ?? null);
+        $this->assertNotEmpty($session->qr_visit_metadata['ip_hash'] ?? null);
+        $this->assertNotEmpty($session->qr_visit_metadata['user_agent'] ?? null);
 
         $this->postJson(route('customer.orders.store', $token), [
             'session_id' => $session->id,
@@ -67,6 +72,7 @@ class QrOrderingFlowTest extends TestCase
     public function test_closed_qr_session_blocks_the_old_visit_but_scanning_again_opens_a_new_one(): void
     {
         [$cafe, $branch, $table, $token, $product] = $this->createCafeTableAndProduct();
+        $this->get(route('customer.menu', $token).'?qr_scan=1')->assertRedirect(route('customer.menu', $token));
         $firstMenu = $this->get(route('customer.menu', $token))->assertOk();
         $oldSession = TableSession::query()->where('dining_table_id', $table->id)->firstOrFail();
         preg_match('~<script type="application/json" id="menu-data">(.*?)</script>~s', $firstMenu->getContent(), $firstMatches);
@@ -89,8 +95,12 @@ class QrOrderingFlowTest extends TestCase
         ])->assertUnprocessable()
             ->assertJsonPath('message', 'Bu QR oturumu sona erdi. Sipariş vermek için masadaki QR kodu yeniden okutun.');
 
-        // The same phone can rescan the static QR. That creates the next seating
-        // and rotates its browser marker, while a page already open keeps the old ID.
+        // A normal refresh with the revoked visit must not start another seating.
+        $this->get(route('customer.menu', $token))->assertOk();
+        $this->assertDatabaseCount('table_sessions', 1);
+
+        // Scanning the fixed QR explicitly starts the next seating.
+        $this->get(route('customer.menu', $token).'?qr_scan=1')->assertRedirect(route('customer.menu', $token));
         $rescannedMenu = $this->get(route('customer.menu', $token))->assertOk();
         preg_match('~<script type="application/json" id="menu-data">(.*?)</script>~s', $rescannedMenu->getContent(), $rescannedMatches);
         $rescannedData = json_decode($rescannedMatches[1] ?? '', true);
@@ -204,6 +214,36 @@ class QrOrderingFlowTest extends TestCase
         $this->assertDatabaseCount('orders', 2);
     }
 
+    public function test_only_the_first_phone_to_scan_can_claim_an_open_table_visit(): void
+    {
+        [, , $table, $token, $product] = $this->createCafeTableAndProduct();
+        $this->get(route('customer.menu', $token).'?qr_scan=1')->assertRedirect(route('customer.menu', $token));
+        $ownerMenu = $this->get(route('customer.menu', $token))->assertOk();
+        preg_match('~<script type="application/json" id="menu-data">(.*?)</script>~s', $ownerMenu->getContent(), $matches);
+        $ownerData = json_decode($matches[1] ?? '', true);
+        $ownerSession = session()->all();
+        $sessionId = $table->openSession()->id;
+
+        $this->flushSession();
+        $this->get(route('customer.menu', $token).'?qr_scan=1')->assertRedirect(route('customer.menu', $token));
+        $this->get(route('customer.menu', $token))->assertOk()->assertSee('Bu masada başka bir telefonla açık QR ziyareti var.');
+        $this->postJson(route('customer.orders.store', $token), [
+            'session_id' => $sessionId,
+            'qr_visit_id' => $ownerData['qr_visit_id'],
+            'items' => [$product->id => 1],
+        ])->assertUnprocessable()->assertJsonValidationErrors('qr_visit_id');
+        $this->assertDatabaseCount('table_sessions', 1);
+
+        $this->withSession($ownerSession)->get(route('customer.menu', $token))->assertOk();
+        $this->postJson(route('customer.orders.store', $token), [
+            'session_id' => $sessionId,
+            'qr_visit_id' => $ownerData['qr_visit_id'],
+            'items' => [$product->id => 1],
+        ])->assertOk();
+        $session = $table->openSession();
+        $this->assertNotNull($session?->qr_visit_token_hash);
+    }
+
     public function test_order_rejects_products_from_another_cafe(): void
     {
         [, , $table, $token] = $this->createCafeTableAndProduct();
@@ -233,7 +273,7 @@ class QrOrderingFlowTest extends TestCase
             'email' => 'deniz@example.test',
             'password' => 'Secure-Customer-2026!',
             'password_confirmation' => 'Secure-Customer-2026!',
-        ])->assertRedirect(route('customer.menu', $token));
+        ])->assertRedirect(route('customer.menu', ['token' => $token, 'qr_scan' => 1]));
 
         $customer = User::query()->where('email', 'deniz@example.test')->firstOrFail();
         $this->assertNull($customer->cafe_id);
@@ -377,13 +417,14 @@ class QrOrderingFlowTest extends TestCase
 
     private function qrSessionId(DiningTable $table): int
     {
-        $this->get(route('customer.menu', $table->token()));
+        $this->get(route('customer.menu', $table->token()).'?qr_scan=1');
 
         return (int) $table->openSession()?->id;
     }
 
     private function qrVisitId(DiningTable $table): string
     {
+        $this->get(route('customer.menu', $table->token()).'?qr_scan=1')->assertRedirect(route('customer.menu', $table->token()));
         $response = $this->get(route('customer.menu', $table->token()));
         preg_match('~<script type="application/json" id="menu-data">(.*?)</script>~s', $response->getContent(), $matches);
         $menuData = json_decode($matches[1] ?? '', true);

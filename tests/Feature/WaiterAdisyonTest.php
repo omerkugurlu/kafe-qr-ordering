@@ -27,17 +27,19 @@ class WaiterAdisyonTest extends TestCase
         $this->assertSame($cafe->id, $waiter->cafe->id);
         $this->assertTrue($waiter->branches()->whereKey($branch->id)->exists());
 
+        $item = $order->items()->firstOrFail();
         $this->actingAs($waiter)->post(route('staff.sessions.payments.store', $session->id), [
             'method' => Payment::METHOD_CASH,
-            'amount' => '100.00',
+            'items' => [$item->id => 1],
+            'cash_received' => '130.00',
             'person_label' => 'Ayşe',
         ])->assertRedirect(route('staff.sessions.show', $session->id));
 
-        $this->assertSame('150.00', $session->fresh()->dueAmount());
+        $this->assertSame('125.00', $session->fresh()->dueAmount());
         $this->assertSame(TableSession::STATUS_OPEN, $session->fresh()->status, 'An adisyon stays open while a balance remains.');
         $this->actingAs($waiter)->post(route('staff.sessions.payments.store', $session->id), [
             'method' => Payment::METHOD_CARD,
-            'amount' => '150.00',
+            'items' => [$item->id => 1],
             'person_label' => 'Mehmet',
         ])->assertRedirect(route('staff.branch', $branch->id));
 
@@ -53,6 +55,67 @@ class WaiterAdisyonTest extends TestCase
         $this->assertDatabaseCount('payments', 2);
     }
 
+    public function test_waiter_can_split_the_bill_between_two_people_and_show_cash_change(): void
+    {
+        [$cafe, $branch, $session] = $this->createOpenSession();
+        $waiter = User::factory()->create(['role' => User::ROLE_WAITER, 'cafe_id' => $cafe->id]);
+        $branch->staff()->attach($waiter->id);
+
+        $this->actingAs($waiter)->post(route('staff.sessions.payments.store', $session->id), [
+            'method' => Payment::METHOD_CASH,
+            'split_people' => 2,
+            'cash_received' => '130.00',
+            'person_label' => 'Ayşe',
+        ])->assertRedirect(route('staff.sessions.show', $session->id));
+
+        $firstPayment = Payment::query()->firstOrFail();
+        $this->assertSame('125.00', $firstPayment->amount);
+        $this->assertSame('5.00', $firstPayment->change_amount);
+        $this->assertSame(1, $firstPayment->split_person_number);
+        $this->assertSame('125.00', $session->fresh()->dueAmount());
+        $this->assertDatabaseCount('payment_allocations', 0);
+        $this->actingAs($waiter)->get(route('staff.sessions.show', $session->id))
+            ->assertOk()
+            ->assertSee('Bölme devam ediyor: 1 / 2 kişi ödedi.')
+            ->assertSee('Kişi sayısına böl')
+            ->assertSee('4 kişi');
+
+        $this->actingAs($waiter)->post(route('staff.sessions.payments.store', $session->id), [
+            'method' => Payment::METHOD_CARD,
+            'split_people' => 2,
+            'person_label' => 'Mehmet',
+        ])->assertRedirect(route('staff.branch', $branch->id));
+
+        $payments = Payment::query()->orderBy('id')->get();
+        $this->assertSame($payments[0]->split_group_id, $payments[1]->split_group_id);
+        $this->assertSame([1, 2], $payments->pluck('split_person_number')->all());
+        $this->assertSame(['125.00', '125.00'], $payments->pluck('amount')->all());
+        $this->assertSame(TableSession::STATUS_CLOSED, $session->fresh()->status);
+        $this->assertNull($session->fresh()->qr_visit_token_hash);
+    }
+
+    public function test_waiter_can_split_the_bill_between_four_people(): void
+    {
+        [$cafe, $branch, $session] = $this->createOpenSession();
+        $waiter = User::factory()->create(['role' => User::ROLE_WAITER, 'cafe_id' => $cafe->id]);
+        $branch->staff()->attach($waiter->id);
+
+        for ($person = 1; $person <= 4; $person++) {
+            $response = $this->actingAs($waiter)->post(route('staff.sessions.payments.store', $session->id), [
+                'method' => Payment::METHOD_CARD,
+                'split_people' => 4,
+                'person_label' => 'Kişi '.$person,
+            ]);
+
+            $response->assertRedirect($person === 4
+                ? route('staff.branch', $branch->id)
+                : route('staff.sessions.show', $session->id));
+        }
+
+        $this->assertSame(['62.50', '62.50', '62.50', '62.50'], Payment::query()->orderBy('id')->pluck('amount')->all());
+        $this->assertSame(TableSession::STATUS_CLOSED, $session->fresh()->status);
+    }
+
     public function test_waiter_cannot_access_an_unassigned_branch_or_overcharge_a_session(): void
     {
         [$cafe, $branch, $session] = $this->createOpenSession();
@@ -61,8 +124,9 @@ class WaiterAdisyonTest extends TestCase
 
         $this->actingAs($waiter)->post(route('staff.sessions.payments.store', $session->id), [
             'method' => Payment::METHOD_CASH,
-            'amount' => '251.00',
-        ])->assertSessionHasErrors('amount');
+            'items' => [$session->orders()->firstOrFail()->items()->firstOrFail()->id => 3],
+            'cash_received' => '400.00',
+        ])->assertSessionHasErrors('items');
         $this->assertDatabaseCount('payments', 0);
 
         $otherCafe = Cafe::query()->create(['name' => 'Diğer kafe', 'slug' => 'diger-kafe', 'status' => Cafe::STATUS_ACTIVE]);
@@ -83,7 +147,8 @@ class WaiterAdisyonTest extends TestCase
 
         $this->actingAs($waiter)->post(route('staff.sessions.payments.store', $session->id), [
             'method' => Payment::METHOD_CASH,
-            'amount' => '250.00',
+            'items' => [$order->items()->firstOrFail()->id => 2],
+            'cash_received' => '250.00',
         ])->assertRedirect(route('staff.branch', $branch->id));
 
         $this->assertDatabaseHas('orders', ['id' => $order->id, 'status' => Order::STATUS_PAID]);
@@ -103,7 +168,9 @@ class WaiterAdisyonTest extends TestCase
         $branch->staff()->attach($waiter->id);
 
         $this->actingAs($waiter)->post(route('staff.sessions.payments.store', $session->id), [
-            'method' => Payment::METHOD_CASH, 'amount' => '10.00', 'order_item_id' => $servedItem->id,
+            'method' => Payment::METHOD_CASH,
+            'items' => [$servedItem->id => 1],
+            'cash_received' => '125.00',
         ])->assertRedirect(route('staff.sessions.show', $session->id));
         Livewire::actingAs($waiter)->test(OrderBoard::class, ['branchId' => $branch->id])
             ->call('cancel', $servedOrder->id, 'Müşteri vazgeçti')->assertForbidden();
@@ -138,7 +205,8 @@ class WaiterAdisyonTest extends TestCase
         $branch->staff()->attach($waiter->id);
 
         $this->actingAs($waiter)->post(route('staff.sessions.payments.store', $session->id), [
-            'method' => Payment::METHOD_CARD, 'amount' => '250.00',
+            'method' => Payment::METHOD_CARD,
+            'items' => [$firstOrder->items()->firstOrFail()->id => 2],
         ])->assertRedirect(route('staff.branch', $branch->id));
 
         $settledPayment = Payment::query()->firstOrFail();
@@ -193,7 +261,8 @@ class WaiterAdisyonTest extends TestCase
 
         $this->actingAs($collector)->post(route('staff.sessions.payments.store', $session->id), [
             'method' => Payment::METHOD_CASH,
-            'amount' => '250.00',
+            'items' => [$session->orders()->firstOrFail()->items()->firstOrFail()->id => 2],
+            'cash_received' => '250.00',
         ])->assertRedirect(route('staff.branch', $branch->id));
 
         $payment = Payment::query()->firstOrFail();
@@ -230,14 +299,14 @@ class WaiterAdisyonTest extends TestCase
         $this->actingAs($waiter)->get(route('staff.sessions.show', $session->id))
             ->assertOk()
             ->assertSee('Adisyona ürün ekle')
-            ->assertSee('Ödeme dağılımı')
-            ->assertSee('Hesap böl')
-            ->assertSee('data-split-bill', false)
+            ->assertSee('Hesabı nasıl alacaksın?')
+            ->assertSee('Kişi sayısına böl')
+            ->assertSee('data-payment-picker', false)
             ->assertSee('data-due-cents="33500"', false)
-            ->assertSee('value="335.00"', false)
             ->assertSee('data-due-cents="25000"', false)
             ->assertSee('data-due-cents="8500"', false)
-            ->assertSee('Kalanın tamamı');
+            ->assertSee('2 kişi')
+            ->assertSee('4 kişi');
     }
 
     public function test_waiter_payment_form_prefills_the_remaining_balance_for_a_selected_item(): void
@@ -249,15 +318,15 @@ class WaiterAdisyonTest extends TestCase
 
         $this->actingAs($waiter)->post(route('staff.sessions.payments.store', $session->id), [
             'method' => Payment::METHOD_CASH,
-            'amount' => '100.00',
-            'order_item_id' => $item->id,
+            'items' => [$item->id => 1],
+            'cash_received' => '130.00',
         ])->assertRedirect(route('staff.sessions.show', $session->id));
 
         $this->actingAs($waiter)->get(route('staff.sessions.show', $session->id))
             ->assertOk()
-            ->assertSee('value="150.00"', false)
-            ->assertSee('data-payment-allocation', false)
-            ->assertSee('data-due-cents="15000"', false)
+            ->assertSee('Ödenecek ürünler')
+            ->assertSee('data-payment-item', false)
+            ->assertSee('data-due-cents="12500"', false)
             ->assertDontSee('data-due-cents="25000"', false);
     }
 
@@ -284,16 +353,14 @@ class WaiterAdisyonTest extends TestCase
 
         $this->actingAs($waiter)->post(route('staff.sessions.payments.store', $session->id), [
             'method' => Payment::METHOD_CARD,
-            'amount' => '126.00',
-            'order_item_id' => $firstItem->id,
-        ])->assertSessionHasErrors('amount');
+            'items' => [$firstItem->id => 2],
+        ])->assertSessionHasErrors('items');
 
         $this->assertDatabaseCount('payments', 1);
 
         $this->actingAs($waiter)->post(route('staff.sessions.payments.store', $session->id), [
             'method' => Payment::METHOD_CARD,
-            'amount' => '100.00',
-            'order_item_id' => $secondItem->id,
+            'items' => [$secondItem->id => 1],
         ])->assertRedirect(route('staff.sessions.show', $session->id));
 
         $this->assertDatabaseCount('payments', 2);

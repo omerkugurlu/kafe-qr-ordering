@@ -40,7 +40,7 @@ test('QR order, waiter serves and takes payment, then the next scan rotates visi
     expect(waiterEmail).toBeTruthy();
     expect(waiterPassword).toBeTruthy();
 
-    const menuUrl = `/masa/${qrToken}`;
+    const menuUrl = `/masa/${qrToken}?qr_scan=1`;
     await page.goto(menuUrl);
     await expect(page.locator('#menu-data')).toHaveCount(1);
     const firstVisit = await menuState(page);

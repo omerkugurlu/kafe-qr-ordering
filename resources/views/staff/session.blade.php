@@ -275,13 +275,13 @@
         </div>
 
         <div class="space-y-5">
-            <section class="card overflow-hidden" data-payment-picker>
+            <section class="card overflow-hidden" data-payment-picker data-due-cents="{{ $dueCents }}" data-split-due-cents="{{ $splitDueCents }}" data-split-target-cents="{{ $activeSplitGroup !== null ? \App\Services\Money::toCents((string) $activeSplitGroup->initial_amount) : $splitDueCents }}" data-split-paid-cents="{{ $activeSplitGroup !== null ? \App\Services\Money::toCents((string) $activeSplitGroup->payments->whereNull('voided_at')->sum('amount')) : 0 }}" data-split-count="{{ $activeSplitGroup?->people_count ?? 0 }}" data-split-paid="{{ $splitPaidCount }}" data-split-active="{{ $activeSplitGroup !== null ? 'true' : 'false' }}">
                 <div class="bg-forest px-5 py-4 text-white">
                     <p class="text-[10px] font-bold uppercase tracking-[.16em] text-amber">Ödeme al</p>
                     <div class="mt-1 flex items-end justify-between gap-3">
                         <div>
-                            <h2 class="font-display text-2xl font-semibold">Ürünleri seç</h2>
-                            <p class="mt-0.5 text-xs text-white/70">Bu kişinin ödeyeceği ürün ve adetleri işaretle.</p>
+                            <h2 class="font-display text-2xl font-semibold">Ödeme al</h2>
+                            <p class="mt-0.5 text-xs text-white/70">Ürün seç veya hesabı kişi sayısına böl.</p>
                         </div>
                         <p class="shrink-0 text-right">
                             <span class="block text-[10px] font-semibold uppercase tracking-wider text-white/60">Kalan</span>
@@ -292,7 +292,42 @@
 
                 <form method="post" action="{{ route('staff.sessions.payments.store', $session->id) }}" class="space-y-4 p-4 sm:p-5">
                     @csrf
-                    <fieldset class="space-y-2">
+                    <fieldset class="space-y-3 rounded-2xl border border-line bg-cream/60 p-3" aria-label="Hesap paylaşımı">
+                        <legend class="label px-1">Hesabı nasıl alacaksın?</legend>
+                        <div class="grid grid-cols-2 gap-2">
+                            <label class="flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-line bg-paper px-3 text-xs font-bold has-[:checked]:border-forest has-[:checked]:bg-sage/40">
+                                <input type="radio" name="payment_mode" value="items" data-payment-mode @checked($activeSplitGroup === null) @disabled($activeSplitGroup !== null) class="size-4 accent-forest">
+                                Ürün seç
+                            </label>
+                            <label class="flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-line bg-paper px-3 text-xs font-bold has-[:checked]:border-forest has-[:checked]:bg-sage/40">
+                                <input type="radio" name="payment_mode" value="split" data-payment-mode @checked($activeSplitGroup !== null) class="size-4 accent-forest">
+                                Kişi sayısına böl
+                            </label>
+                        </div>
+                        <div data-payment-split-panel @if ($activeSplitGroup === null) hidden @endif>
+                            <p class="text-xs leading-5 text-muted" data-split-description>
+                                @if ($activeSplitGroup !== null)
+                                    Bölme devam ediyor: {{ $splitPaidCount }} / {{ $activeSplitGroup->people_count }} kişi ödedi. Her ödeme sonrası kalan tutar yeniden hesaplanır.
+                                @else
+                                    Toplam hesabı 2 veya 4 kişiye böl. Kuruş farkı eşit ve doğru dağılır.
+                                @endif
+                            </p>
+                            <div class="mt-2 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Hesabı bölecek kişi sayısı">
+                                @foreach ([2, 4] as $peopleCount)
+                                    <label class="flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-line bg-paper px-3 text-sm font-bold has-[:checked]:border-forest has-[:checked]:bg-sage/40">
+                                        <input type="radio" name="split_people" value="{{ $peopleCount }}" data-split-people @checked(($activeSplitGroup?->people_count ?? 2) === $peopleCount) @disabled($activeSplitGroup !== null && $activeSplitGroup->people_count !== $peopleCount) disabled class="size-4 accent-forest">
+                                        {{ $peopleCount }} kişi
+                                    </label>
+                                @endforeach
+                            </div>
+                            <div class="mt-2 flex items-center justify-between rounded-xl bg-paper px-3 py-2" aria-live="polite">
+                                <span class="text-xs font-semibold text-muted" data-split-remaining>Pay tutarı</span>
+                                <strong class="font-display text-lg font-semibold text-ink" data-split-share>₺0,00</strong>
+                            </div>
+                        </div>
+                    </fieldset>
+
+                    <fieldset class="space-y-2" data-payment-items-fieldset @disabled($activeSplitGroup !== null)>
                         <legend class="label">Ödenecek ürünler</legend>
                         @php
                             $payableOrders = $session->orders->whereIn('status', ['accepted', 'ready', 'served']);
@@ -363,7 +398,7 @@
 
                     <div class="rounded-2xl bg-cream px-4 py-3" aria-live="polite">
                         <div class="flex items-center justify-between gap-3">
-                            <span class="text-xs font-semibold text-muted"><span data-payment-selected-count>0</span> adet seçildi</span>
+                            <span class="text-xs font-semibold text-muted" data-payment-selected-summary>0 adet seçildi</span>
                             <strong data-payment-total class="font-display text-xl font-semibold text-ink">₺0,00</strong>
                         </div>
                         <p data-payment-items-summary class="mt-1 truncate text-[11px] font-medium text-muted">Ödenecek ürünleri seç.</p>
@@ -397,6 +432,7 @@
                                         · {{ $payment->orderItem->name_snapshot }}
                                     @endif
                                     @if ($payment->person_label) · {{ $payment->person_label }}@endif
+                                    @if ($payment->splitGroup) · {{ $payment->split_person_number }} / {{ $payment->splitGroup->people_count }} kişi @endif
                                 </span>
                                 <span class="font-bold text-ink">₺{{ number_format((float) $payment->amount, 2, ',', '.') }}</span>
                             </div>

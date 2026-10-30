@@ -20,6 +20,8 @@ class TableSession extends Model
         'dining_table_id',
         'status',
         'qr_ordering_enabled',
+        'qr_visit_token_hash',
+        'qr_visit_metadata',
         'opened_by',
         'closed_by',
         'opened_at',
@@ -33,6 +35,7 @@ class TableSession extends Model
             'opened_at' => 'datetime',
             'closed_at' => 'datetime',
             'qr_ordering_enabled' => 'boolean',
+            'qr_visit_metadata' => 'array',
         ];
     }
 
@@ -54,6 +57,11 @@ class TableSession extends Model
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
+    }
+
+    public function paymentSplitGroups(): HasMany
+    {
+        return $this->hasMany(PaymentSplitGroup::class);
     }
 
     public function serviceRequests(): HasMany

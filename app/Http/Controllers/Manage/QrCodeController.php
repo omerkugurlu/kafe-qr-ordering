@@ -25,7 +25,7 @@ class QrCodeController extends Controller
             'drawCircularModules' => false,
             'addQuietzone' => true,
         ]);
-        $svg = (new QRCode($options))->render(route('customer.menu', $table->token()));
+        $svg = (new QRCode($options))->render(route('customer.menu', ['token' => $table->token(), 'qr_scan' => 1]));
 
         return response($svg)->header('Content-Type', 'image/svg+xml')->header('Cache-Control', 'private, no-store');
     }

@@ -49,7 +49,7 @@ class RegisteredCustomerController extends Controller
         Auth::login($user);
         $request->session()->regenerate();
 
-        return redirect()->route('customer.menu', $token)->with('status', 'Hesabınız oluşturuldu. Siparişlerinize devam edebilirsiniz.');
+        return redirect()->route('customer.menu', ['token' => $token, 'qr_scan' => 1])->with('status', 'Hesabınız oluşturuldu. Siparişlerinize devam edebilirsiniz.');
     }
 
     /** @return array{Cafe, DiningTable} */

@@ -40,7 +40,7 @@ class CustomerExperienceTest extends TestCase
         $this->post(route('customer.login.store', $tableA->token()), [
             'email' => $customer->email,
             'password' => 'Customer!2026',
-        ])->assertRedirect(route('customer.menu', $tableA->token()));
+        ])->assertRedirect(route('customer.menu', ['token' => $tableA->token(), 'qr_scan' => 1]));
         $this->assertAuthenticatedAs($customer);
 
         $orderA = $this->placeOrder($cafeA, $branchA, $tableA, 'Kahve', '200.00', 2);
@@ -87,7 +87,7 @@ class CustomerExperienceTest extends TestCase
             'email' => 'yeni@example.com',
             'password' => 'Customer!2026',
             'password_confirmation' => 'Customer!2026',
-        ])->assertRedirect(route('customer.menu', $token));
+        ])->assertRedirect(route('customer.menu', ['token' => $token, 'qr_scan' => 1]));
 
         $this->assertDatabaseHas('users', [
             'email' => 'yeni@example.com',
@@ -119,7 +119,7 @@ class CustomerExperienceTest extends TestCase
             'email' => 'sekiz@example.com',
             'password' => 'Coffee88',
             'password_confirmation' => 'Coffee88',
-        ])->assertRedirect(route('customer.menu', $token));
+        ])->assertRedirect(route('customer.menu', ['token' => $token, 'qr_scan' => 1]));
 
         $this->assertDatabaseHas('users', ['email' => 'sekiz@example.com', 'role' => User::ROLE_CUSTOMER]);
     }
@@ -333,7 +333,7 @@ class CustomerExperienceTest extends TestCase
         $this->actingAs($waiter)->post(route('customer.login.store', $table->token()), [
             'email' => $customer->email,
             'password' => 'Customer!2026',
-        ])->assertRedirect(route('customer.menu', $table->token()));
+        ])->assertRedirect(route('customer.menu', ['token' => $table->token(), 'qr_scan' => 1]));
 
         $this->assertAuthenticatedAs($customer);
     }
@@ -446,6 +446,7 @@ class CustomerExperienceTest extends TestCase
             'opened_at' => now(),
         ]);
 
+        $this->get(route('customer.menu', $table->token()).'?qr_scan=1')->assertRedirect(route('customer.menu', $table->token()));
         $this->get(route('customer.menu', $table->token()))->assertOk();
         $qrVisitId = session('qr_visits.'.$table->id.'.id');
 
