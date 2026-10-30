@@ -64,6 +64,40 @@ class MenuProductController extends Controller
         return redirect()->route('manage.branches.show', $branch)->with('status', 'Öne çıkan ürünler güncellendi.');
     }
 
+    public function updateRecommendations(Request $request, Branch $branch, int $productId): RedirectResponse
+    {
+        Gate::authorize('update', $branch);
+        $product = $this->product($branch, $productId);
+        $validated = $request->validate([
+            'suggestions' => ['nullable', 'array', 'max:6'],
+            'suggestions.*' => [
+                'integer',
+                Rule::exists('menu_products', 'id')->where(fn ($query) => $query
+                    ->where('cafe_id', $branch->cafe_id)
+                    ->where('branch_id', $branch->uses_shared_menu ? null : $branch->id)
+                    ->where('id', '!=', $product->id)),
+            ],
+            'suggestion_category_ids' => ['nullable', 'array', 'max:20'],
+            'suggestion_category_ids.*' => [
+                'integer',
+                Rule::exists('menu_categories', 'id')->where(fn ($query) => $query
+                    ->where('cafe_id', $branch->cafe_id)
+                    ->where('branch_id', $branch->uses_shared_menu ? null : $branch->id)),
+            ],
+        ]);
+
+        $product->forceFill([
+            'suggestions' => $this->recommendations(
+                $validated['suggestions'] ?? [],
+                $validated['suggestion_category_ids'] ?? [],
+                $product->id,
+            ),
+        ])->save();
+        $this->log($request, $branch, $product, 'menu.product_recommendations_updated');
+
+        return redirect()->route('manage.branches.show', $branch)->with('status', 'İyi gider önerileri kaydedildi.');
+    }
+
     public function storeOptionGroup(Request $request, Branch $branch, int $productId): RedirectResponse
     {
         Gate::authorize('update', $branch);
@@ -177,7 +211,9 @@ class MenuProductController extends Controller
             'prep_minutes' => $validated['prep_minutes'] ?? 0,
             'is_available' => $request->boolean('is_available'),
             'is_featured' => $isFeatured,
-            'suggestions' => $this->recommendations($validated['suggestions'] ?? [], $validated['suggestion_category_ids'] ?? [], $product->id),
+            'suggestions' => $request->exists('suggestions') || $request->exists('suggestion_category_ids')
+                ? $this->recommendations($validated['suggestions'] ?? [], $validated['suggestion_category_ids'] ?? [], $product->id)
+                : $product->suggestions,
         ])->save();
         $this->log($request, $branch, $product, 'menu.product_updated');
 

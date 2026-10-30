@@ -117,6 +117,7 @@ Route::middleware(['auth', 'auth.session', 'role:cafe_owner,cafe_manager'])->pre
     Route::post('/subeler/{branch}/urunler', [MenuProductController::class, 'store'])->middleware('throttle:admin-write')->name('products.store');
     Route::patch('/subeler/{branch}/populer', [MenuProductController::class, 'updateFeatured'])->middleware('throttle:admin-write')->name('branches.featured.update');
     Route::patch('/subeler/{branch}/urunler/{productId}', [MenuProductController::class, 'update'])->middleware('throttle:admin-write')->name('products.update');
+    Route::patch('/subeler/{branch}/urunler/{productId}/oneriler', [MenuProductController::class, 'updateRecommendations'])->middleware('throttle:admin-write')->name('products.recommendations.update');
     Route::post('/subeler/{branch}/urunler/{productId}/secenek-gruplari', [MenuProductController::class, 'storeOptionGroup'])->middleware('throttle:admin-write')->name('products.option-groups.store');
     Route::patch('/subeler/{branch}/urunler/{productId}/secenek-gruplari/{groupId}', [MenuProductController::class, 'updateOptionGroup'])->middleware('throttle:admin-write')->name('products.option-groups.update');
     Route::delete('/subeler/{branch}/urunler/{productId}/secenek-gruplari/{groupId}', [MenuProductController::class, 'destroyOptionGroup'])->middleware('throttle:admin-write')->name('products.option-groups.destroy');

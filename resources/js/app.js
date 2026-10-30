@@ -79,7 +79,7 @@ document.querySelectorAll('[data-featured-picker]').forEach((picker) => {
         const checkbox = event.target.closest('input[type="checkbox"]');
         if (checkbox?.checked && options.querySelectorAll('input[type="checkbox"]:checked').length > 8) {
             checkbox.checked = false;
-            if (message) message.textContent = 'En fazla 8 popüler ürün seçebilirsiniz.';
+            if (message) message.textContent = 'En fazla 8 ürün seçebilirsiniz.';
         } else if (message) {
             message.textContent = '';
         }
@@ -102,7 +102,7 @@ document.querySelectorAll('[data-featured-picker]').forEach((picker) => {
             }
             checkbox.checked = true;
         }
-        if (reachedLimit && message) message.textContent = 'En fazla 8 popüler ürün seçebilirsiniz.';
+        if (reachedLimit && message) message.textContent = 'En fazla 8 ürün seçebilirsiniz.';
         update();
     });
     picker.querySelector('[data-featured-clear]')?.addEventListener('click', () => {
