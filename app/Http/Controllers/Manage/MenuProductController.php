@@ -98,6 +98,70 @@ class MenuProductController extends Controller
         return redirect()->route('manage.branches.show', $branch)->with('status', 'İyi gider önerileri kaydedildi.');
     }
 
+    public function updateCategoryRecommendations(Request $request, Branch $branch): RedirectResponse
+    {
+        Gate::authorize('update', $branch);
+        $menuBranchId = $branch->uses_shared_menu ? null : $branch->id;
+        $validated = $request->validate([
+            'trigger_category_id' => [
+                'required',
+                'integer',
+                Rule::exists('menu_categories', 'id')->where(fn ($query) => $query
+                    ->where('cafe_id', $branch->cafe_id)
+                    ->where('branch_id', $menuBranchId)),
+            ],
+            'suggestion_product_ids' => ['nullable', 'array', 'max:6'],
+            'suggestion_product_ids.*' => [
+                'integer',
+                Rule::exists('menu_products', 'id')->where(fn ($query) => $query
+                    ->where('cafe_id', $branch->cafe_id)
+                    ->where('is_available', true)
+                    ->where('branch_id', $menuBranchId)
+                    ->whereIn('category_id', MenuCategory::query()
+                        ->select('id')
+                        ->where('cafe_id', $branch->cafe_id)
+                        ->where('branch_id', $menuBranchId)
+                        ->where('is_active', true))),
+            ],
+        ]);
+
+        $triggerCategoryId = (int) $validated['trigger_category_id'];
+        $selectedProductIds = collect($validated['suggestion_product_ids'] ?? [])->map(fn ($id): int => (int) $id)->unique()->all();
+        $categoryMarker = 'category:'.$triggerCategoryId;
+
+        DB::transaction(function () use ($request, $branch, $menuBranchId, $triggerCategoryId, $selectedProductIds, $categoryMarker): void {
+            $products = MenuProduct::query()
+                ->where('cafe_id', $branch->cafe_id)
+                ->where('branch_id', $menuBranchId)
+                ->lockForUpdate()
+                ->get(['id', 'suggestions']);
+
+            foreach ($products as $product) {
+                $suggestions = collect($product->suggestions ?? [])->reject(fn ($value): bool => $value === $categoryMarker);
+                if (in_array($product->id, $selectedProductIds, true)) {
+                    $suggestions->push($categoryMarker);
+                }
+                $updatedSuggestions = $suggestions->values()->all();
+                if ($updatedSuggestions !== ($product->suggestions ?? [])) {
+                    $product->forceFill(['suggestions' => $updatedSuggestions])->save();
+                }
+            }
+
+            ActivityLog::query()->create([
+                'cafe_id' => $branch->cafe_id,
+                'branch_id' => $branch->id,
+                'user_id' => $request->user()->id,
+                'action' => 'menu.category_recommendations_updated',
+                'subject_type' => MenuCategory::class,
+                'subject_id' => $triggerCategoryId,
+                'metadata' => ['product_ids' => $selectedProductIds],
+                'ip_address' => $request->ip(),
+            ]);
+        });
+
+        return redirect()->route('manage.branches.show', $branch)->with('status', 'Kategoriye özel iyi gider önerileri kaydedildi.');
+    }
+
     public function storeOptionGroup(Request $request, Branch $branch, int $productId): RedirectResponse
     {
         Gate::authorize('update', $branch);

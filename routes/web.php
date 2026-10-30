@@ -116,6 +116,7 @@ Route::middleware(['auth', 'auth.session', 'role:cafe_owner,cafe_manager'])->pre
     Route::delete('/subeler/{branch}/kategoriler/{categoryId}', [MenuCategoryController::class, 'destroy'])->middleware('throttle:admin-write')->name('categories.destroy');
     Route::post('/subeler/{branch}/urunler', [MenuProductController::class, 'store'])->middleware('throttle:admin-write')->name('products.store');
     Route::patch('/subeler/{branch}/populer', [MenuProductController::class, 'updateFeatured'])->middleware('throttle:admin-write')->name('branches.featured.update');
+    Route::patch('/subeler/{branch}/kategori-onerileri', [MenuProductController::class, 'updateCategoryRecommendations'])->middleware('throttle:admin-write')->name('branches.category-recommendations.update');
     Route::patch('/subeler/{branch}/urunler/{productId}', [MenuProductController::class, 'update'])->middleware('throttle:admin-write')->name('products.update');
     Route::patch('/subeler/{branch}/urunler/{productId}/oneriler', [MenuProductController::class, 'updateRecommendations'])->middleware('throttle:admin-write')->name('products.recommendations.update');
     Route::post('/subeler/{branch}/urunler/{productId}/secenek-gruplari', [MenuProductController::class, 'storeOptionGroup'])->middleware('throttle:admin-write')->name('products.option-groups.store');

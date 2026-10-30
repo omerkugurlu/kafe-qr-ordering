@@ -312,34 +312,91 @@ document.querySelectorAll('[data-recommendation-details]').forEach((details) => 
     initialize();
 });
 
-document.querySelectorAll('[data-recommendation-manager]').forEach((form) => {
-    const source = form.querySelector('[data-recommendation-source]');
-    const details = form.parentElement;
-    source?.addEventListener('change', () => {
-        const selected = source.selectedOptions[0];
-        if (!selected || !details) return;
+document.querySelectorAll('[data-category-recommendation-manager]').forEach((manager) => {
+    const form = manager.querySelector('[data-category-recommendation-form]');
+    const trigger = form?.querySelector('[data-recommendation-trigger]');
+    const options = form?.querySelector('[data-recommendation-product-options]');
+    const search = form?.querySelector('[data-recommendation-product-search]');
+    const count = form?.querySelector('[data-category-recommendation-count]');
+    const message = form?.querySelector('[data-recommendation-message]');
+    if (!form || !trigger || !options || !search || !count) return;
 
-        const productId = selected.value;
-        details.dataset.productId = productId;
-        details.dataset.pickerInitialized = 'false';
-        form.action = form.dataset.routeTemplate.replace(/\/0\/oneriler$/, `/${productId}/oneriler`);
-        const productPicker = form.querySelector('[data-suggestion-picker]');
-        const productOptions = productPicker?.querySelector('[data-suggestion-options]');
-        const categoryPicker = form.querySelector('[data-suggestion-category-picker]');
-        const categoryOptions = categoryPicker?.querySelector('[data-suggestion-category-options]');
-        if (productPicker) productPicker.dataset.selectedSuggestions = selected.dataset.suggestions ?? '';
-        if (categoryPicker) categoryPicker.dataset.selectedCategories = selected.dataset.categories ?? '';
-        if (productOptions) {
-            productOptions.replaceChildren();
-            delete productOptions.dataset.loaded;
-        }
-        if (categoryOptions) {
-            categoryOptions.replaceChildren();
-            delete categoryOptions.dataset.loaded;
-        }
-        delete details.dataset.pickerInitialized;
-        initializeRecommendationDetails(details);
+    const filter = () => {
+        const activeCategory = manager.dataset.targetCategory ?? '';
+        const query = search.value.trim().toLocaleLowerCase('tr-TR');
+        let visibleCount = 0;
+        options.querySelectorAll('[data-recommendation-product-option]').forEach((option) => {
+            const matches = (activeCategory === '' || option.dataset.categoryId === activeCategory)
+                && option.textContent.trim().toLocaleLowerCase('tr-TR').includes(query);
+            option.hidden = !matches;
+            if (matches) visibleCount += 1;
+        });
+        const empty = options.querySelector('[data-recommendation-empty]');
+        if (empty) empty.hidden = visibleCount > 0;
+        manager.querySelectorAll('[data-recommendation-target-filter]').forEach((button) => {
+            const selected = button.dataset.categoryId === activeCategory;
+            button.setAttribute('aria-pressed', String(selected));
+            button.classList.toggle('border-forest', selected);
+            button.classList.toggle('bg-sage', selected);
+            button.classList.toggle('text-forest', selected);
+            button.classList.toggle('bg-paper', !selected);
+            button.classList.toggle('text-ink', !selected);
+        });
+    };
+    const updateCount = () => {
+        const selectedCount = options.querySelectorAll('input[type="checkbox"]:checked').length;
+        count.textContent = `${selectedCount} / 6 seçili`;
+    };
+    const loadTriggerCategory = () => {
+        const selectedIds = new Set((trigger.selectedOptions[0]?.dataset.suggestionProducts ?? '').split(',').filter(Boolean));
+        manager.dataset.targetCategory = '';
+        search.value = '';
+        options.querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
+            checkbox.checked = selectedIds.has(checkbox.value);
+        });
+        if (message) message.textContent = '';
+        filter();
+        updateCount();
+    };
+
+    manager.querySelectorAll('[data-recommendation-target-filter]').forEach((button) => {
+        button.addEventListener('click', () => {
+            manager.dataset.targetCategory = manager.dataset.targetCategory === button.dataset.categoryId ? '' : button.dataset.categoryId;
+            filter();
+        });
     });
+    search.addEventListener('input', filter);
+    options.addEventListener('change', (event) => {
+        const checkbox = event.target.closest?.('input[type="checkbox"]');
+        if (checkbox?.checked && options.querySelectorAll('input[type="checkbox"]:checked').length > 6) {
+            checkbox.checked = false;
+            if (message) message.textContent = 'En fazla 6 ürün seçebilirsin.';
+        } else if (message) {
+            message.textContent = '';
+        }
+        updateCount();
+    });
+    form.querySelector('[data-recommendation-select-visible]')?.addEventListener('click', () => {
+        let hitLimit = false;
+        options.querySelectorAll('[data-recommendation-product-option]:not([hidden]) input[type="checkbox"]').forEach((checkbox) => {
+            if (checkbox.checked) return;
+            if (options.querySelectorAll('input[type="checkbox"]:checked').length >= 6) {
+                hitLimit = true;
+                return;
+            }
+            checkbox.checked = true;
+        });
+        if (message) message.textContent = hitLimit ? 'En fazla 6 ürün seçebilirsin.' : '';
+        updateCount();
+    });
+    form.querySelector('[data-recommendation-clear]')?.addEventListener('click', () => {
+        options.querySelectorAll('input[type="checkbox"]:checked').forEach((checkbox) => { checkbox.checked = false; });
+        if (message) message.textContent = '';
+        updateCount();
+    });
+    trigger.addEventListener('change', loadTriggerCategory);
+    filter();
+    loadTriggerCategory();
 });
 
 const categoryStrip = document.querySelector('[data-category-strip]');
