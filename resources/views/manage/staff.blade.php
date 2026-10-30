@@ -106,25 +106,60 @@
                         </div>
                     </div>
 
-                    <form method="post" action="{{ route('manage.staff.update', $person) }}" class="mt-4 border-t border-line pt-4">
+                    <form method="post" action="{{ route('manage.staff.update', $person) }}" class="mt-4 space-y-4 border-t border-line pt-4">
                         @csrf
                         @method('PATCH')
-                        <input type="hidden" name="is_active" value="{{ $person->is_active ? 0 : 1 }}">
-                        <p class="text-[10px] font-bold uppercase tracking-[.16em] text-muted">Şube erişimi</p>
-                        <div class="mt-2 flex flex-wrap gap-2">
-                            @forelse ($branches as $branch)
-                                <label class="chip cursor-pointer has-[:checked]:border-forest has-[:checked]:bg-sage/50">
-                                    <input type="checkbox" name="branch_ids[]" value="{{ $branch->id }}" @checked($person->branches->contains('id', $branch->id)) class="size-3.5 accent-forest">
-                                    {{ $branch->name }}
-                                </label>
-                            @empty
-                                <span class="text-xs text-muted">Şube yok</span>
-                            @endforelse
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            <label class="block">
+                                <span class="label">Ad soyad</span>
+                                <input name="name" value="{{ $person->name }}" maxlength="120" required class="input" autocomplete="name">
+                            </label>
+                            <label class="block">
+                                <span class="label">E-posta</span>
+                                <input type="email" name="email" value="{{ $person->email }}" maxlength="255" required class="input" autocomplete="email">
+                            </label>
+                            <label class="block">
+                                <span class="label">Yeni şifre</span>
+                                <input type="password" name="password" minlength="12" maxlength="255" autocomplete="new-password" class="input" placeholder="Değiştirmek için girin">
+                                <span class="mt-1 block text-xs text-muted">Boş bırakırsan mevcut şifre korunur.</span>
+                            </label>
+                            <label class="block">
+                                <span class="label">Görev</span>
+                                <select name="role" required class="input">
+                                    <option value="waiter" @selected($person->role === 'waiter')>Garson</option>
+                                    <option value="kitchen" @selected($person->role === 'kitchen')>Mutfak</option>
+                                    <option value="cafe_manager" @selected($person->role === 'cafe_manager')>İşletme yöneticisi</option>
+                                </select>
+                            </label>
+                            <label class="block sm:col-span-2">
+                                <span class="label">Hesap durumu</span>
+                                <select name="is_active" required class="input">
+                                    <option value="1" @selected($person->is_active)>Etkin</option>
+                                    <option value="0" @selected(! $person->is_active)>Kapalı</option>
+                                </select>
+                            </label>
                         </div>
-                        <div class="mt-3 flex items-center justify-end gap-2">
-                            <button class="btn btn-secondary btn-sm">
+
+                        <fieldset>
+                            <legend class="label">Erişeceği şubeler</legend>
+                            <div class="mt-2 flex flex-wrap gap-2">
+                                @forelse ($branches as $branch)
+                                    <label class="chip cursor-pointer has-[:checked]:border-forest has-[:checked]:bg-sage/50">
+                                        <input type="checkbox" name="branch_ids[]" value="{{ $branch->id }}" @checked($person->branches->contains('id', $branch->id)) class="size-3.5 accent-forest">
+                                        {{ $branch->name }}
+                                    </label>
+                                @empty
+                                    <span class="text-xs text-muted">Şube yok</span>
+                                @endforelse
+                            </div>
+                            <p class="mt-2 text-xs leading-5 text-muted">Garson ve mutfak hesapları etkin kalacaksa en az bir şubeye atanmalıdır. İşletme yöneticisi için şube seçimi isteğe bağlıdır.</p>
+                        </fieldset>
+
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <p class="max-w-md text-xs leading-5 text-muted">Rol, e-posta, şifre veya erişim değiştiğinde personelin yeniden giriş yapması gerekir.</p>
+                            <button class="btn btn-primary min-h-11">
                                 <x-ui.icon name="check" class="size-4" />
-                                {{ $person->is_active ? 'Erişimi güncelle' : 'Hesabı etkinleştir' }}
+                                Değişiklikleri kaydet
                             </button>
                         </div>
                     </form>
