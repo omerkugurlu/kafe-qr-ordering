@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Str;
+use App\Services\MenuImageUrl;
 
 class Cafe extends Model
 {
@@ -107,26 +107,11 @@ class Cafe extends Model
 
     public function getLogoUrlAttribute(): ?string
     {
-        return $this->publicAssetUrl($this->logo_path);
+        return MenuImageUrl::make($this->logo_path);
     }
 
     public function getCoverUrlAttribute(): ?string
     {
-        return $this->publicAssetUrl($this->cover_path);
-    }
-
-    private function publicAssetUrl(?string $path): ?string
-    {
-        if ($path === null || $path === '') {
-            return null;
-        }
-
-        if (Str::startsWith($path, ['http://', 'https://'])) {
-            return $path;
-        }
-
-        return url('/media/'.collect(explode('/', ltrim($path, '/')))
-            ->map(fn (string $segment): string => rawurlencode($segment))
-            ->implode('/'));
+        return MenuImageUrl::make($this->cover_path);
     }
 }

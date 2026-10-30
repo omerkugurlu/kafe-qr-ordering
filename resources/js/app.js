@@ -118,9 +118,15 @@ const setupSuggestionPicker = (picker, options) => {
     if (!picker || !options || picker.dataset.controlsReady === 'true') return;
 
     const count = picker.querySelector('[data-suggestion-count]');
+    const maximum = picker.hasAttribute('data-suggestion-category-picker') ? 20 : 6;
+    const limitMessage = document.createElement('p');
+    limitMessage.className = 'text-xs font-semibold text-danger';
+    limitMessage.setAttribute('role', 'status');
+    limitMessage.setAttribute('aria-live', 'polite');
+    picker.append(limitMessage);
     const updateCount = () => {
         const selected = options.querySelectorAll('input[type="checkbox"]:checked').length;
-        if (count) count.textContent = `${selected} seçili`;
+        if (count) count.textContent = `${selected} / ${maximum} seçili`;
     };
 
     const filterProducts = () => {
@@ -159,17 +165,40 @@ const setupSuggestionPicker = (picker, options) => {
             : 'Bu kategoride aramanızla eşleşen ürün bulunamadı.';
     };
 
-    options.addEventListener('change', updateCount);
+    options.addEventListener('change', (event) => {
+        const checkbox = event.target.closest?.('input[type="checkbox"]');
+        if (checkbox?.checked && options.querySelectorAll('input[type="checkbox"]:checked').length > maximum) {
+            checkbox.checked = false;
+            limitMessage.textContent = picker.hasAttribute('data-suggestion-category-picker')
+                ? 'En fazla 20 tetikleyici kategori seçebilirsiniz.'
+                : 'En fazla 6 ürün önerisi seçebilirsiniz.';
+        } else if (checkbox) {
+            limitMessage.textContent = '';
+        }
+        updateCount();
+    });
     picker.querySelector('[data-select-visible]')?.addEventListener('click', () => {
+        let reachedLimit = false;
         options.querySelectorAll('[data-suggestion-option], [data-suggestion-category-option]').forEach((option) => {
             if (option.hidden) return;
             const checkbox = option.querySelector('input[type="checkbox"]');
-            if (checkbox) checkbox.checked = true;
+            if (!checkbox || checkbox.checked) return;
+            if (options.querySelectorAll('input[type="checkbox"]:checked').length >= maximum) {
+                reachedLimit = true;
+                return;
+            }
+            checkbox.checked = true;
         });
+        limitMessage.textContent = reachedLimit
+            ? picker.hasAttribute('data-suggestion-category-picker')
+                ? 'En fazla 20 tetikleyici kategori seçebilirsiniz.'
+                : 'En fazla 6 ürün önerisi seçebilirsiniz.'
+            : '';
         updateCount();
     });
     picker.querySelector('[data-clear-selection]')?.addEventListener('click', () => {
         options.querySelectorAll('input[type="checkbox"]:checked').forEach((checkbox) => { checkbox.checked = false; });
+        limitMessage.textContent = '';
         updateCount();
     });
 
@@ -266,7 +295,9 @@ const initializeRecommendationDetails = (details) => {
             const query = searchEvent.currentTarget.value.trim().toLocaleLowerCase('tr-TR');
             categoryOptions.querySelectorAll('[data-suggestion-category-option]').forEach((option) => {
                 const name = option.querySelector('[data-suggestion-category-name]')?.textContent?.trim().toLocaleLowerCase('tr-TR') ?? '';
-                option.hidden = !name.includes(query);
+                const hidden = !name.includes(query);
+                option.hidden = hidden;
+                option.style.display = hidden ? 'none' : '';
             });
         });
     }

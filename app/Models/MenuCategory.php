@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Str;
+use App\Services\MenuImageUrl;
 
 class MenuCategory extends Model
 {
@@ -49,16 +49,6 @@ class MenuCategory extends Model
 
     public function getImageUrlAttribute(): ?string
     {
-        if ($this->image_path === null || $this->image_path === '') {
-            return null;
-        }
-
-        if (Str::startsWith($this->image_path, ['http://', 'https://'])) {
-            return $this->image_path;
-        }
-
-        return url('/media/'.collect(explode('/', ltrim($this->image_path, '/')))
-            ->map(fn (string $segment): string => rawurlencode($segment))
-            ->implode('/'));
+        return MenuImageUrl::make($this->image_path);
     }
 }

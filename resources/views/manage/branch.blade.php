@@ -294,7 +294,7 @@
 
                                                 <div class="sm:col-span-2 flex flex-wrap items-center justify-between gap-2">
                                                     <button class="btn btn-primary btn-sm">
-                                                        <x-ui.icon name="check" class="size-4" /> Ürünü kaydet
+                                                        <x-ui.icon name="check" class="size-4" /> Ürün ve önerileri kaydet
                                                     </button>
                                                 </div>
                                             </form>
@@ -476,11 +476,12 @@
                                         </div>
                                     </div>
                                     <p class="rounded-xl bg-sage/50 px-3 py-2 text-[10px] leading-4 text-muted">Öneriler menüde görünür; müşteri isterse tek dokunuşla sepete ekler.</p>
+                                    <p class="text-[10px] font-semibold text-muted">Yeni ürünle birlikte kaydetmek için alttaki “Ürün ekle” düğmesine basın.</p>
                                 </div>
                             </details>
                         @endif
                         <button class="btn btn-primary btn-sm w-full">
-                            <x-ui.icon name="plus" class="size-3.5" /> Ürün ekle
+                            <x-ui.icon name="plus" class="size-3.5" /> Önerileriyle ürünü ekle
                         </button>
                     </form>
                 @endif
