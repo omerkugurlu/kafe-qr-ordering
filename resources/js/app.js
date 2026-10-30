@@ -207,7 +207,7 @@ const setupSuggestionPicker = (picker, options) => {
 };
 
 const initializeRecommendationDetails = (details) => {
-    if (!details.open || details.dataset.pickerInitialized === 'true') return;
+    if (details.dataset.pickerInitialized === 'true') return;
 
     const picker = details.querySelector('[data-suggestion-picker]');
     const options = picker?.querySelector('[data-suggestion-options]');
@@ -310,6 +310,36 @@ document.querySelectorAll('[data-recommendation-details]').forEach((details) => 
     details.addEventListener('toggle', initialize);
     details.querySelector('summary')?.addEventListener('click', () => window.setTimeout(initialize, 0));
     initialize();
+});
+
+document.querySelectorAll('[data-recommendation-manager]').forEach((form) => {
+    const source = form.querySelector('[data-recommendation-source]');
+    const details = form.parentElement;
+    source?.addEventListener('change', () => {
+        const selected = source.selectedOptions[0];
+        if (!selected || !details) return;
+
+        const productId = selected.value;
+        details.dataset.productId = productId;
+        details.dataset.pickerInitialized = 'false';
+        form.action = form.dataset.routeTemplate.replace(/\/0\/oneriler$/, `/${productId}/oneriler`);
+        const productPicker = form.querySelector('[data-suggestion-picker]');
+        const productOptions = productPicker?.querySelector('[data-suggestion-options]');
+        const categoryPicker = form.querySelector('[data-suggestion-category-picker]');
+        const categoryOptions = categoryPicker?.querySelector('[data-suggestion-category-options]');
+        if (productPicker) productPicker.dataset.selectedSuggestions = selected.dataset.suggestions ?? '';
+        if (categoryPicker) categoryPicker.dataset.selectedCategories = selected.dataset.categories ?? '';
+        if (productOptions) {
+            productOptions.replaceChildren();
+            delete productOptions.dataset.loaded;
+        }
+        if (categoryOptions) {
+            categoryOptions.replaceChildren();
+            delete categoryOptions.dataset.loaded;
+        }
+        delete details.dataset.pickerInitialized;
+        initializeRecommendationDetails(details);
+    });
 });
 
 const categoryStrip = document.querySelector('[data-category-strip]');
