@@ -7,6 +7,7 @@ use App\Models\ActivityLog;
 use App\Models\Branch;
 use App\Models\MenuCategory;
 use App\Models\MenuProduct;
+use App\Services\SubscriptionService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -38,10 +39,11 @@ class BranchController extends Controller
         return view('manage.branch', compact('branch', 'categories', 'menuSources', 'hasPrivateMenu'));
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request, SubscriptionService $subscriptions): RedirectResponse
     {
         $user = $request->user();
         Gate::authorize('create', Branch::class);
+        $subscriptions->requireCapacity($user->cafe, 'branches');
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'address' => ['nullable', 'string', 'max:255'],

@@ -14,6 +14,7 @@ use App\Models\TableSession;
 use App\Models\User;
 use App\Services\Money;
 use App\Services\OrderPresenter;
+use App\Services\SubscriptionService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -22,7 +23,7 @@ use Illuminate\Support\Str;
 
 class MenuController extends Controller
 {
-    public function show(Request $request, string $token, OrderPresenter $presenter): Response|RedirectResponse
+    public function show(Request $request, string $token, OrderPresenter $presenter, SubscriptionService $subscriptions): Response|RedirectResponse
     {
         $table = DiningTable::query()
             ->where('public_token_hash', hash('sha256', $token))
@@ -39,11 +40,12 @@ class MenuController extends Controller
         $branch = $table->branch;
         $cafe = $branch->cafe;
         $branchMenuId = $branch->uses_shared_menu ? null : $branch->id;
-        $customer = $request->user()?->role === User::ROLE_CUSTOMER && $request->user()->is_active
+        $customerAccountsEnabled = $subscriptions->featureEnabled($cafe, 'customer_accounts');
+        $customer = $customerAccountsEnabled && $request->user()?->role === User::ROLE_CUSTOMER && $request->user()->is_active
             ? $request->user()
             : null;
 
-        if ($cafe->registration_policy === Cafe::POLICY_REQUIRED && $customer === null) {
+        if ($customerAccountsEnabled && $cafe->registration_policy === Cafe::POLICY_REQUIRED && $customer === null) {
             return redirect()
                 ->route('customer.login', $token)
                 ->with('status', __('customer.login_required_title'));
@@ -139,7 +141,7 @@ class MenuController extends Controller
 
         $loyalty = null;
 
-        if ($customer !== null && $cafe->loyalty_enabled) {
+        if ($customer !== null && $cafe->loyalty_enabled && $subscriptions->featureEnabled($cafe, 'loyalty')) {
             $account = LoyaltyAccount::query()
                 ->where('cafe_id', $cafe->id)
                 ->where('user_id', $customer->id)
@@ -176,16 +178,17 @@ class MenuController extends Controller
             }
         }
 
-        $announcements = $cafe->announcements()
+        $announcements = $subscriptions->featureEnabled($cafe, 'announcements') ? $cafe->announcements()
             ->active()
             ->forBranch($branch->id)
             ->orderByDesc('created_at')
             ->take(6)
-            ->get();
+            ->get() : collect();
 
         $loyaltyTeaser = $customer === null
             && $cafe->registration_policy === Cafe::POLICY_OPTIONAL
-            && $cafe->loyalty_enabled;
+            && $cafe->loyalty_enabled
+            && $subscriptions->featureEnabled($cafe, 'loyalty');
 
         $menuData = [
             'locale' => app()->getLocale(),
@@ -213,7 +216,8 @@ class MenuController extends Controller
             'featured_ids' => $featuredIds->values()->all(),
             'session' => $sessionPayload,
             'qr_visit_id' => $session !== null && is_array($qrVisit) ? ($qrVisit['id'] ?? null) : null,
-            'ordering_available' => $session?->status === TableSession::STATUS_OPEN
+            'ordering_available' => $subscriptions->serviceEnabled($cafe)
+                && $session?->status === TableSession::STATUS_OPEN
                 && $session->qr_ordering_enabled
                 && is_array($qrVisit)
                 && (int) ($qrVisit['session_id'] ?? 0) === (int) $session->id
@@ -226,10 +230,10 @@ class MenuController extends Controller
                 'bill' => route('customer.bill', $token),
                 'call' => route('customer.call', $token),
                 'menu' => route('customer.menu', $token),
-                'login' => $cafe->registration_policy !== Cafe::POLICY_GUEST
+                'login' => $customerAccountsEnabled && $cafe->registration_policy !== Cafe::POLICY_GUEST
                     ? route('customer.login', $token)
                     : null,
-                'register' => $cafe->registration_policy !== Cafe::POLICY_GUEST
+                'register' => $customerAccountsEnabled && $cafe->registration_policy !== Cafe::POLICY_GUEST
                     ? route('customer.register', $token)
                     : null,
                 'logout' => route('logout'),

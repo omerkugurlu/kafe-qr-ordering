@@ -50,6 +50,7 @@ class Cafe extends Model
         return [
             'loyalty_enabled' => 'boolean',
             'points_per_100' => 'integer',
+            'subscription_legacy_unrestricted' => 'boolean',
         ];
     }
 
@@ -91,6 +92,16 @@ class Cafe extends Model
     public function announcements(): HasMany
     {
         return $this->hasMany(Announcement::class);
+    }
+
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(CafeSubscription::class);
+    }
+
+    public function subscriptionRequests(): HasMany
+    {
+        return $this->hasMany(CafeSubscriptionRequest::class);
     }
 
     public function getLogoUrlAttribute(): ?string

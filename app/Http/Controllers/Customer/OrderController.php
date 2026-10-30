@@ -18,6 +18,7 @@ use App\Services\LoyaltyService;
 use App\Services\Money;
 use App\Services\OrderPresenter;
 use App\Services\ProductOptionSelectionService;
+use App\Services\SubscriptionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -33,6 +34,7 @@ class OrderController extends Controller
         string $token,
         LoyaltyService $loyalty,
         ProductOptionSelectionService $optionSelection,
+        SubscriptionService $subscriptions,
     ): RedirectResponse|JsonResponse {
         $validated = $request->validate([
             'session_id' => ['required', 'integer', 'min:1'],
@@ -73,11 +75,20 @@ class OrderController extends Controller
         $table = $this->tableForToken($token);
         $branch = $table->branch;
         $cafe = $branch->cafe;
-        $customer = $request->user()?->role === User::ROLE_CUSTOMER ? $request->user() : null;
+        $subscriptions->requireServiceAccess($cafe);
+        $customerAccountsEnabled = $subscriptions->featureEnabled($cafe, 'customer_accounts');
+        $customer = $customerAccountsEnabled && $request->user()?->role === User::ROLE_CUSTOMER ? $request->user() : null;
 
-        if ($cafe->registration_policy === Cafe::POLICY_REQUIRED && $customer === null) {
+        if ($customerAccountsEnabled && $cafe->registration_policy === Cafe::POLICY_REQUIRED && $customer === null) {
             return redirect()->route('customer.login', $token)
                 ->with('status', 'Bu kafede sipariş için müşteri hesabı gerekiyor.');
+        }
+
+        if ($couponCode !== null) {
+            $subscriptions->requireFeature($cafe, 'coupons');
+        }
+        if (! empty($validated['loyalty_campaign_id'])) {
+            $subscriptions->requireFeature($cafe, 'loyalty');
         }
 
         if ($customer !== null && ! $customer->is_active) {
@@ -469,7 +480,7 @@ class OrderController extends Controller
         ])->header('Cache-Control', 'private, no-store, max-age=0, must-revalidate');
     }
 
-    public function checkCoupon(Request $request, string $token): JsonResponse
+    public function checkCoupon(Request $request, string $token, SubscriptionService $subscriptions): JsonResponse
     {
         $validated = $request->validate([
             'code' => ['required', 'string', 'max:40'],
@@ -477,6 +488,7 @@ class OrderController extends Controller
         ]);
 
         $table = $this->tableForToken($token);
+        $subscriptions->requireFeature($table->branch->cafe, 'coupons');
 
         if ($this->needsCustomerAccount($request, $table)) {
             return $this->customerLoginRequiredResponse();
@@ -593,7 +605,8 @@ class OrderController extends Controller
 
     private function needsCustomerAccount(Request $request, DiningTable $table): bool
     {
-        return $table->branch->cafe->registration_policy === Cafe::POLICY_REQUIRED
+        return app(SubscriptionService::class)->featureEnabled($table->branch->cafe, 'customer_accounts')
+            && $table->branch->cafe->registration_policy === Cafe::POLICY_REQUIRED
             && ($request->user()?->role !== User::ROLE_CUSTOMER || ! $request->user()->is_active);
     }
 

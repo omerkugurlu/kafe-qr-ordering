@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Branch;
 use App\Models\DiningTable;
+use App\Services\SubscriptionService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -24,9 +25,10 @@ class DiningTableController extends Controller
         ]);
     }
 
-    public function store(Request $request, Branch $branch): RedirectResponse
+    public function store(Request $request, Branch $branch, SubscriptionService $subscriptions): RedirectResponse
     {
         Gate::authorize('update', $branch);
+        $subscriptions->requireCapacity($request->user()->cafe, 'tables');
         $validated = $request->validate([
             'name' => [
                 'required', 'string', 'max:80',

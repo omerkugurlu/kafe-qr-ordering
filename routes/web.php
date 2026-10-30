@@ -21,6 +21,8 @@ use App\Http\Controllers\Manage\ReportController;
 use App\Http\Controllers\Manage\SettingsController;
 use App\Http\Controllers\Manage\StaffController;
 use App\Http\Controllers\Platform\CafeController;
+use App\Http\Controllers\Platform\SubscriptionController as PlatformSubscriptionController;
+use App\Http\Controllers\Manage\SubscriptionController as ManageSubscriptionController;
 use App\Http\Controllers\Staff\BoardController;
 use App\Http\Controllers\Staff\KitchenController;
 use App\Http\Controllers\Staff\PaymentController;
@@ -64,6 +66,11 @@ Route::post('/masa/{token}/cagri', [OrderController::class, 'callWaiter'])->midd
 
 Route::middleware(['auth', 'auth.session', 'role:platform_admin'])->prefix('platform')->name('platform.')->group(function (): void {
     Route::get('/', [CafeController::class, 'index'])->name('dashboard');
+    Route::get('/paketler', [PlatformSubscriptionController::class, 'index'])->name('subscriptions.index');
+    Route::patch('/paketler/{plan}', [PlatformSubscriptionController::class, 'updatePlan'])->middleware('throttle:admin-write')->name('subscriptions.plans.update');
+    Route::post('/paket-talepleri/{subscriptionRequest}/onayla', [PlatformSubscriptionController::class, 'approve'])->middleware('throttle:admin-write')->name('subscriptions.requests.approve');
+    Route::post('/paket-talepleri/{subscriptionRequest}/reddet', [PlatformSubscriptionController::class, 'reject'])->middleware('throttle:admin-write')->name('subscriptions.requests.reject');
+    Route::post('/kafeler/{cafe}/paket', [PlatformSubscriptionController::class, 'assign'])->middleware('throttle:admin-write')->name('subscriptions.cafes.assign');
     Route::get('/cafeler/{cafe}', [CafeController::class, 'show'])->name('cafes.show');
     Route::post('/cafeler', [CafeController::class, 'store'])->middleware('throttle:admin-write')->name('cafes.store');
     Route::patch('/cafeler/{cafe}', [CafeController::class, 'update'])->middleware('throttle:admin-write')->name('cafes.update');
@@ -73,28 +80,30 @@ Route::middleware(['auth', 'auth.session', 'role:platform_admin'])->prefix('plat
 
 Route::middleware(['auth', 'auth.session', 'role:cafe_owner,cafe_manager'])->prefix('yonetim')->name('manage.')->group(function (): void {
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/paket', [ManageSubscriptionController::class, 'index'])->middleware('role:cafe_owner')->name('subscription.index');
+    Route::post('/paket/talep', [ManageSubscriptionController::class, 'requestPlan'])->middleware(['role:cafe_owner', 'throttle:admin-write'])->name('subscription.request');
 
     Route::get('/siparisler', [ManageOrderController::class, 'index'])->name('orders.index');
     Route::get('/siparisler/akis/{branch}', [BoardController::class, 'data'])->middleware('throttle:staff-poll')->name('orders.data');
     Route::post('/siparisler/{order}/durum', [BoardController::class, 'updateStatus'])->middleware('throttle:admin-write')->name('orders.status');
     Route::post('/siparisler/cagri/{serviceRequest}/tamam', [BoardController::class, 'resolveServiceRequest'])->middleware('throttle:admin-write')->name('orders.requests.resolve');
 
-    Route::get('/kuponlar', [CouponController::class, 'index'])->name('coupons.index');
-    Route::post('/kuponlar', [CouponController::class, 'store'])->middleware('throttle:admin-write')->name('coupons.store');
-    Route::patch('/kuponlar/{coupon}', [CouponController::class, 'update'])->middleware('throttle:admin-write')->name('coupons.update');
-    Route::delete('/kuponlar/{coupon}', [CouponController::class, 'destroy'])->middleware('throttle:admin-write')->name('coupons.destroy');
+    Route::get('/kuponlar', [CouponController::class, 'index'])->middleware('subscription.feature:coupons')->name('coupons.index');
+    Route::post('/kuponlar', [CouponController::class, 'store'])->middleware(['throttle:admin-write', 'subscription.feature:coupons'])->name('coupons.store');
+    Route::patch('/kuponlar/{coupon}', [CouponController::class, 'update'])->middleware(['throttle:admin-write', 'subscription.feature:coupons'])->name('coupons.update');
+    Route::delete('/kuponlar/{coupon}', [CouponController::class, 'destroy'])->middleware(['throttle:admin-write', 'subscription.feature:coupons'])->name('coupons.destroy');
 
-    Route::get('/raporlar', [ReportController::class, 'index'])->name('reports.index');
-    Route::get('/raporlar/csv', [ReportController::class, 'export'])->name('reports.export');
+    Route::get('/raporlar', [ReportController::class, 'index'])->middleware('subscription.feature:reports')->name('reports.index');
+    Route::get('/raporlar/csv', [ReportController::class, 'export'])->middleware('subscription.feature:reports')->name('reports.export');
 
     Route::get('/ayarlar', [SettingsController::class, 'index'])->name('settings.index');
     Route::patch('/ayarlar', [SettingsController::class, 'update'])->middleware('throttle:admin-write')->name('settings.update');
 
-    Route::get('/duyurular', [AnnouncementController::class, 'index'])->name('announcements.index');
-    Route::post('/duyurular', [AnnouncementController::class, 'store'])->middleware('throttle:admin-write')->name('announcements.store');
-    Route::patch('/duyurular/{announcement}', [AnnouncementController::class, 'update'])->middleware('throttle:admin-write')->name('announcements.update');
-    Route::patch('/duyurular/{announcement}/durum', [AnnouncementController::class, 'toggle'])->middleware('throttle:admin-write')->name('announcements.toggle');
-    Route::delete('/duyurular/{announcement}', [AnnouncementController::class, 'destroy'])->middleware('throttle:admin-write')->name('announcements.destroy');
+    Route::get('/duyurular', [AnnouncementController::class, 'index'])->middleware('subscription.feature:announcements')->name('announcements.index');
+    Route::post('/duyurular', [AnnouncementController::class, 'store'])->middleware(['throttle:admin-write', 'subscription.feature:announcements'])->name('announcements.store');
+    Route::patch('/duyurular/{announcement}', [AnnouncementController::class, 'update'])->middleware(['throttle:admin-write', 'subscription.feature:announcements'])->name('announcements.update');
+    Route::patch('/duyurular/{announcement}/durum', [AnnouncementController::class, 'toggle'])->middleware(['throttle:admin-write', 'subscription.feature:announcements'])->name('announcements.toggle');
+    Route::delete('/duyurular/{announcement}', [AnnouncementController::class, 'destroy'])->middleware(['throttle:admin-write', 'subscription.feature:announcements'])->name('announcements.destroy');
 
     Route::post('/subeler', [BranchController::class, 'store'])->middleware('throttle:admin-write')->name('branches.store');
     Route::get('/subeler/{branch}', [BranchController::class, 'show'])->name('branches.show');
@@ -119,9 +128,9 @@ Route::middleware(['auth', 'auth.session', 'role:cafe_owner,cafe_manager'])->pre
     Route::get('/calisanlar', [StaffController::class, 'index'])->name('staff.index');
     Route::post('/calisanlar', [StaffController::class, 'store'])->middleware('throttle:admin-write')->name('staff.store');
     Route::patch('/calisanlar/{user}', [StaffController::class, 'update'])->middleware('throttle:admin-write')->name('staff.update');
-    Route::get('/sadakat', [LoyaltyCampaignController::class, 'index'])->name('loyalty.index');
-    Route::post('/sadakat', [LoyaltyCampaignController::class, 'store'])->middleware('throttle:admin-write')->name('loyalty.store');
-    Route::patch('/sadakat/{campaign}', [LoyaltyCampaignController::class, 'update'])->middleware('throttle:admin-write')->name('loyalty.update');
+    Route::get('/sadakat', [LoyaltyCampaignController::class, 'index'])->middleware('subscription.feature:loyalty')->name('loyalty.index');
+    Route::post('/sadakat', [LoyaltyCampaignController::class, 'store'])->middleware(['throttle:admin-write', 'subscription.feature:loyalty'])->name('loyalty.store');
+    Route::patch('/sadakat/{campaign}', [LoyaltyCampaignController::class, 'update'])->middleware(['throttle:admin-write', 'subscription.feature:loyalty'])->name('loyalty.update');
 });
 
 Route::middleware(['auth', 'auth.session', 'role:waiter,kitchen'])->prefix('garson')->name('staff.')->group(function (): void {

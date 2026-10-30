@@ -35,6 +35,7 @@
     if ($isPlatform) {
         $groups['Platform'] = [
             ['label' => 'Kafeler', 'route' => 'platform.dashboard', 'icon' => 'grid', 'key' => 'platform'],
+            ['label' => 'Paket yönetimi', 'route' => 'platform.subscriptions.index', 'icon' => 'star', 'key' => 'subscriptions'],
         ];
     } else {
         $operations = [];
@@ -56,6 +57,9 @@
         $management = [];
 
         if ($role !== User::ROLE_WAITER && $role !== User::ROLE_KITCHEN) {
+            if ($role === User::ROLE_CAFE_OWNER) {
+                $management[] = ['label' => 'Paket ve abonelik', 'route' => 'manage.subscription.index', 'icon' => 'star', 'key' => 'subscription'];
+            }
             $management[] = ['label' => 'Kuponlar', 'route' => 'manage.coupons.index', 'icon' => 'ticket', 'key' => 'coupons'];
             $management[] = ['label' => 'Duyurular', 'route' => 'manage.announcements.index', 'icon' => 'bell', 'key' => 'announcements'];
             $management[] = ['label' => 'Raporlar', 'route' => 'manage.reports.index', 'icon' => 'chart', 'key' => 'reports'];

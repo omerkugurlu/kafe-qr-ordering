@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Cafe;
 use App\Models\DiningTable;
 use App\Models\User;
+use App\Services\SubscriptionService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -15,18 +16,20 @@ use Illuminate\View\View;
 
 class CustomerSessionController extends Controller
 {
-    public function create(string $token): View
+    public function create(string $token, SubscriptionService $subscriptions): View
     {
         [$cafe] = $this->tableAndCafe($token);
         abort_if($cafe->registration_policy === Cafe::POLICY_GUEST, 404);
+        $subscriptions->requireFeature($cafe, 'customer_accounts');
 
         return view('auth.customer-login', compact('cafe', 'token'));
     }
 
-    public function store(Request $request, string $token): RedirectResponse
+    public function store(Request $request, string $token, SubscriptionService $subscriptions): RedirectResponse
     {
         [$cafe] = $this->tableAndCafe($token);
         abort_if($cafe->registration_policy === Cafe::POLICY_GUEST, 404);
+        $subscriptions->requireFeature($cafe, 'customer_accounts');
 
         $credentials = $request->validate([
             'email' => ['required', 'email'],

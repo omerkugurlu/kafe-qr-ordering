@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Cafe;
 use App\Models\DiningTable;
 use App\Models\User;
+use App\Services\SubscriptionService;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -16,18 +17,20 @@ use Illuminate\View\View;
 
 class RegisteredCustomerController extends Controller
 {
-    public function create(string $token): View
+    public function create(string $token, SubscriptionService $subscriptions): View
     {
         [$cafe] = $this->tableAndCafe($token);
         abort_if($cafe->registration_policy === Cafe::POLICY_GUEST, 404);
+        $subscriptions->requireFeature($cafe, 'customer_accounts');
 
         return view('auth.register-customer', compact('cafe', 'token'));
     }
 
-    public function store(Request $request, string $token): RedirectResponse
+    public function store(Request $request, string $token, SubscriptionService $subscriptions): RedirectResponse
     {
         [$cafe] = $this->tableAndCafe($token);
         abort_if($cafe->registration_policy === Cafe::POLICY_GUEST, 404);
+        $subscriptions->requireFeature($cafe, 'customer_accounts');
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')],

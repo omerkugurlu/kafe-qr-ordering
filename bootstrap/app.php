@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureUserHasRole;
+use App\Http\Middleware\EnsureSubscriptionFeature;
 use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\SetLocale;
 use Illuminate\Foundation\Application;
@@ -22,6 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'role' => EnsureUserHasRole::class,
+            'subscription.feature' => EnsureSubscriptionFeature::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
