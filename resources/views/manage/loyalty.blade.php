@@ -29,7 +29,7 @@
         <article class="kpi">
             <p class="text-[11px] font-bold uppercase tracking-[.16em] text-muted">Puan oranı</p>
             <p class="mt-2 font-display text-3xl font-semibold text-ink">{{ $cafe->points_per_100 }}</p>
-            <p class="mt-1 text-xs font-medium text-muted">Her 100 ₺ için puan</p>
+            <p class="mt-1 text-xs font-medium text-muted">Her {{ number_format($cafe->loyalty_spend_threshold) }} ₺ harcamada puan</p>
         </article>
     </div>
 
@@ -68,13 +68,23 @@
                         <select name="reward_type" class="input">
                             <option value="percent" @selected(old('reward_type') === 'percent')>Yüzde</option>
                             <option value="fixed" @selected(old('reward_type') === 'fixed')>Sabit tutar</option>
+                            <option value="product" @selected(old('reward_type') === 'product')>Puanla ücretsiz ürün</option>
                         </select>
                     </label>
                     <label class="block">
-                        <span class="label">İndirim</span>
-                        <input type="number" name="reward_value" min="0.01" max="100000" step="0.01" value="{{ old('reward_value', 10) }}" required class="input">
+                        <span class="label">İndirim (ürün ödülünde kullanılmaz)</span>
+                        <input type="number" name="reward_value" min="0" max="100000" step="0.01" value="{{ old('reward_value', 10) }}" class="input">
                     </label>
                 </div>
+                <label class="block">
+                    <span class="label">Ücretsiz ürün</span>
+                    <select name="reward_product_id" class="input">
+                        <option value="">Ürün ödülü seçilince ürün belirleyin</option>
+                        @foreach ($products as $product)
+                            <option value="{{ $product->id }}" @selected((string) old('reward_product_id') === (string) $product->id)>{{ $product->name }}</option>
+                        @endforeach
+                    </select>
+                </label>
                 <label class="block">
                     <span class="label">Minimum sipariş (₺)</span>
                     <input type="number" name="minimum_order_total" min="0" max="1000000" step="0.01" value="{{ old('minimum_order_total', 0) }}" class="input">
@@ -108,8 +118,8 @@
                             <p class="mt-1 text-sm font-medium text-muted">
                                 {{ $campaign->type === 'order_count' ? $campaign->threshold.' tamamlanmış sipariş' : $campaign->threshold.' puan' }}
                                 karşılığında
-                                <strong class="text-ink">{{ $campaign->reward_type === 'percent' ? '%'.rtrim(rtrim(number_format((float) $campaign->reward_value, 2, ',', '.'), '0'), ',') : \App\Services\Money::formatDecimal($campaign->reward_value) }}</strong>
-                                indirim
+                                <strong class="text-ink">{{ $campaign->reward_type === 'product' ? 'Ücretsiz: '.($campaign->rewardProduct?->name ?? 'ürün') : ($campaign->reward_type === 'percent' ? '%'.rtrim(rtrim(number_format((float) $campaign->reward_value, 2, ',', '.'), '0'), ',') : \App\Services\Money::formatDecimal($campaign->reward_value)) }}</strong>
+                                {{ $campaign->reward_type === 'product' ? 'ödülü' : 'indirim' }}
                             </p>
                             <p class="mt-1 text-[11px] font-medium text-muted">
                                 {{ $campaign->transactions_count }} işlem · min. {{ \App\Services\Money::formatDecimal($campaign->minimum_order_total) }} sepet
@@ -150,11 +160,21 @@
                                 <select name="reward_type" class="input">
                                     <option value="percent" @selected($campaign->reward_type === 'percent')>Yüzde</option>
                                     <option value="fixed" @selected($campaign->reward_type === 'fixed')>Sabit tutar</option>
+                                    <option value="product" @selected($campaign->reward_type === 'product')>Puanla ücretsiz ürün</option>
                                 </select>
                             </label>
                             <label class="block">
-                                <span class="label">İndirim</span>
-                                <input type="number" name="reward_value" value="{{ $campaign->reward_value }}" min="0.01" step="0.01" required class="input">
+                                <span class="label">İndirim (ürün ödülünde kullanılmaz)</span>
+                                <input type="number" name="reward_value" value="{{ $campaign->reward_value }}" min="0" step="0.01" class="input">
+                            </label>
+                            <label class="block sm:col-span-2">
+                                <span class="label">Ücretsiz ürün</span>
+                                <select name="reward_product_id" class="input">
+                                    <option value="">Ürün ödülü seçilince ürün belirleyin</option>
+                                    @foreach ($products as $product)
+                                        <option value="{{ $product->id }}" @selected($campaign->reward_product_id === $product->id)>{{ $product->name }}</option>
+                                    @endforeach
+                                </select>
                             </label>
                             <label class="block">
                                 <span class="label">Min. sipariş (₺)</span>
@@ -177,6 +197,7 @@
                             <input type="hidden" name="threshold" value="{{ $campaign->threshold }}">
                             <input type="hidden" name="points_required" value="{{ $campaign->points_required }}">
                             <input type="hidden" name="reward_type" value="{{ $campaign->reward_type }}">
+                            <input type="hidden" name="reward_product_id" value="{{ $campaign->reward_product_id }}">
                             <input type="hidden" name="reward_value" value="{{ $campaign->reward_value }}">
                             <input type="hidden" name="minimum_order_total" value="{{ $campaign->minimum_order_total }}">
                             <input type="hidden" name="starts_at" value="{{ $campaign->starts_at?->format('Y-m-d\TH:i') }}">

@@ -9,17 +9,22 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('cafes', function (Blueprint $table): void {
-            $table->boolean('subscription_legacy_unrestricted')->default(false)->after('registration_policy');
-        });
+        $addedLegacyAccessColumn = ! Schema::hasColumn('cafes', 'subscription_legacy_unrestricted');
+        if ($addedLegacyAccessColumn) {
+            Schema::table('cafes', function (Blueprint $table): void {
+                $table->boolean('subscription_legacy_unrestricted')->default(false)->after('registration_policy');
+            });
 
-        DB::table('cafes')->update(['subscription_legacy_unrestricted' => true]);
+            DB::table('cafes')->update(['subscription_legacy_unrestricted' => true]);
+        }
     }
 
     public function down(): void
     {
-        Schema::table('cafes', function (Blueprint $table): void {
-            $table->dropColumn('subscription_legacy_unrestricted');
-        });
+        if (Schema::hasColumn('cafes', 'subscription_legacy_unrestricted')) {
+            Schema::table('cafes', function (Blueprint $table): void {
+                $table->dropColumn('subscription_legacy_unrestricted');
+            });
+        }
     }
 };

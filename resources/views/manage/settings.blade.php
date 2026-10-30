@@ -134,7 +134,11 @@
                         <input type="checkbox" name="loyalty_enabled" value="1" @checked(old('loyalty_enabled', $cafe->loyalty_enabled)) class="size-5 accent-forest">
                     </label>
                     <label class="mt-3 block">
-                        <span class="label">Her 100 ₺ için puan</span>
+                        <span class="label">Kaç ₺ harcamada puan kazanılsın?</span>
+                        <input type="number" name="loyalty_spend_threshold" value="{{ old('loyalty_spend_threshold', $cafe->loyalty_spend_threshold) }}" min="1" max="1000000" step="1" required class="input">
+                    </label>
+                    <label class="mt-3 block">
+                        <span class="label">Her eşikte kazanılacak puan</span>
                         <input type="number" name="points_per_100" value="{{ old('points_per_100', $cafe->points_per_100) }}" min="1" max="100" required class="input">
                     </label>
                 </div>

@@ -31,6 +31,7 @@ class Cafe extends Model
         'registration_policy',
         'loyalty_enabled',
         'points_per_100',
+        'loyalty_spend_threshold',
         'brand_name',
         'logo_path',
         'cover_path',
@@ -50,6 +51,7 @@ class Cafe extends Model
         return [
             'loyalty_enabled' => 'boolean',
             'points_per_100' => 'integer',
+            'loyalty_spend_threshold' => 'integer',
             'subscription_legacy_unrestricted' => 'boolean',
         ];
     }

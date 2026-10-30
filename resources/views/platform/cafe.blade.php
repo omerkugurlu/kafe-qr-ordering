@@ -207,7 +207,11 @@
                         <input type="checkbox" name="loyalty_enabled" value="1" @checked($cafe->loyalty_enabled) class="size-4 accent-forest"> Sadakat programı açık
                     </label>
                     <label class="block">
-                        <span class="label">Her 100 ₺ için puan</span>
+                        <span class="label">Puan kazanma harcama eşiği (₺)</span>
+                        <input type="number" name="loyalty_spend_threshold" value="{{ $cafe->loyalty_spend_threshold }}" min="1" max="1000000" step="1" required class="input">
+                    </label>
+                    <label class="block">
+                        <span class="label">Her eşikte kazanılacak puan</span>
                         <input type="number" name="points_per_100" value="{{ $cafe->points_per_100 }}" min="0" max="10000" required class="input">
                     </label>
                     <button class="btn btn-primary w-full">Kafe ayarlarını kaydet</button>

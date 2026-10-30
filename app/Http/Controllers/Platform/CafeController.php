@@ -160,6 +160,7 @@ class CafeController extends Controller
             'brand_name' => ['nullable', 'string', 'max:120'],
             'loyalty_enabled' => ['required', 'boolean'],
             'points_per_100' => ['required', 'integer', 'min:0', 'max:10000'],
+            'loyalty_spend_threshold' => ['required', 'integer', 'min:1', 'max:1000000'],
         ]);
 
         DB::transaction(function () use ($cafe, $validated, $request): void {

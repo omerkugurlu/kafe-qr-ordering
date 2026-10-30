@@ -8,6 +8,8 @@ use App\Models\Branch;
 use App\Models\Cafe;
 use App\Models\Coupon;
 use App\Models\DiningTable;
+use App\Models\LoyaltyCampaign;
+use App\Models\MenuProduct;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\ServiceRequest;
@@ -496,6 +498,7 @@ class OperationsPanelTest extends TestCase
             'registration_policy' => Cafe::POLICY_OPTIONAL,
             'loyalty_enabled' => 1,
             'points_per_100' => 3,
+            'loyalty_spend_threshold' => 500,
         ])->assertRedirect(route('manage.settings.index'));
 
         $this->assertDatabaseHas('cafes', [
@@ -503,7 +506,53 @@ class OperationsPanelTest extends TestCase
             'name' => 'Yeni Kafe Adı',
             'brand_name' => 'Yeni Marka',
             'points_per_100' => 3,
+            'loyalty_spend_threshold' => 500,
             'loyalty_enabled' => true,
+        ]);
+    }
+
+    public function test_owner_can_create_and_update_a_points_campaign_for_a_free_product(): void
+    {
+        [$cafe] = $this->cafeWithBranch();
+        $owner = User::factory()->create(['role' => User::ROLE_CAFE_OWNER, 'cafe_id' => $cafe->id]);
+        $category = $cafe->categories()->create(['name' => 'Tatlılar', 'is_active' => true]);
+        $product = MenuProduct::query()->create([
+            'cafe_id' => $cafe->id, 'category_id' => $category->id, 'name' => 'Kurabiye',
+            'price' => '25.00', 'is_available' => true,
+        ]);
+
+        $this->actingAs($owner)->post(route('manage.loyalty.store'), [
+            'name' => '100 puana kurabiye',
+            'type' => LoyaltyCampaign::TYPE_POINTS,
+            'threshold' => 100,
+            'points_required' => 100,
+            'reward_type' => LoyaltyCampaign::REWARD_PRODUCT,
+            'reward_product_id' => $product->id,
+            'reward_value' => '0.00',
+            'minimum_order_total' => '0.00',
+            'is_active' => 1,
+        ])->assertRedirect(route('manage.loyalty.index'));
+
+        $campaign = LoyaltyCampaign::query()->firstOrFail();
+        $this->assertSame('0.00', $campaign->reward_value);
+        $this->assertSame($product->id, $campaign->reward_product_id);
+
+        $this->actingAs($owner)->patch(route('manage.loyalty.update', $campaign), [
+            'name' => '100 puana büyük kurabiye',
+            'type' => LoyaltyCampaign::TYPE_POINTS,
+            'threshold' => 100,
+            'points_required' => 100,
+            'reward_type' => LoyaltyCampaign::REWARD_PRODUCT,
+            'reward_product_id' => $product->id,
+            'reward_value' => '0.00',
+            'minimum_order_total' => '0.00',
+            'is_active' => 1,
+        ])->assertRedirect(route('manage.loyalty.index'));
+
+        $this->assertDatabaseHas('loyalty_campaigns', [
+            'id' => $campaign->id,
+            'name' => '100 puana büyük kurabiye',
+            'reward_product_id' => $product->id,
         ]);
     }
 

@@ -150,8 +150,30 @@ class MenuController extends Controller
             $campaigns = $cafe->loyaltyCampaigns()
                 ->where('is_active', true)
                 ->orderBy('id')
+                ->with([
+                    'rewardProduct.branches' => fn ($query) => $query->whereKey($branch->id),
+                    'rewardProduct.category',
+                    'rewardProduct.optionGroups',
+                ])
                 ->get()
-                ->filter(fn (LoyaltyCampaign $campaign): bool => $campaign->isCurrentlyActive())
+                ->filter(function (LoyaltyCampaign $campaign) use ($branch, $branchMenuId): bool {
+                    if (!$campaign->isCurrentlyActive()) {
+                        return false;
+                    }
+
+                    if ($campaign->reward_type !== LoyaltyCampaign::REWARD_PRODUCT) {
+                        return true;
+                    }
+
+                    $product = $campaign->rewardProduct;
+
+                    return $product !== null
+                        && ($product->branch_id === null ? null : (int) $product->branch_id) === $branchMenuId
+                        && $product->category?->is_active === true
+                        && ($product->category->branch_id === null ? null : (int) $product->category->branch_id) === $branchMenuId
+                        && $product->isAvailableAt($branch)
+                        && !$product->optionGroups->contains(fn ($group): bool => $group->is_active && $group->min_selections > 0);
+                })
                 ->map(fn (LoyaltyCampaign $campaign): array => [
                     'id' => $campaign->id,
                     'name' => $campaign->name,
@@ -160,11 +182,14 @@ class MenuController extends Controller
                         ? $campaign->requiredPoints()
                         : $campaign->requiredOrderCount(),
                     'reward_type' => $campaign->reward_type,
+                    'reward_product' => $campaign->rewardProduct?->name,
                     'reward_value_cents' => Money::toCents($campaign->reward_value),
                     'minimum_order_cents' => Money::toCents($campaign->minimum_order_total),
-                    'reward_label' => $campaign->reward_type === LoyaltyCampaign::REWARD_PERCENT
-                        ? '%'.rtrim(rtrim(number_format((float) $campaign->reward_value, 2, ',', ''), '0'), ',')
-                        : Money::format(Money::toCents($campaign->reward_value)),
+                    'reward_label' => $campaign->reward_type === LoyaltyCampaign::REWARD_PRODUCT
+                        ? 'Ücretsiz: '.($campaign->rewardProduct?->name ?? 'ürün')
+                        : ($campaign->reward_type === LoyaltyCampaign::REWARD_PERCENT
+                            ? '%'.rtrim(rtrim(number_format((float) $campaign->reward_value, 2, ',', ''), '0'), ',')
+                            : Money::format(Money::toCents($campaign->reward_value))),
                 ])
                 ->values()
                 ->all();

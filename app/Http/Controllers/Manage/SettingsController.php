@@ -41,6 +41,7 @@ class SettingsController extends Controller
             'registration_policy' => ['required', Rule::in([Cafe::POLICY_GUEST, Cafe::POLICY_OPTIONAL, Cafe::POLICY_REQUIRED])],
             'loyalty_enabled' => ['sometimes', 'boolean'],
             'points_per_100' => ['required', 'integer', 'min:1', 'max:100'],
+            'loyalty_spend_threshold' => ['required', 'integer', 'min:1', 'max:1000000'],
             'logo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
             'cover' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:6144'],
             'logo_url' => ['nullable', 'url', 'max:2048'],
@@ -59,6 +60,7 @@ class SettingsController extends Controller
             'registration_policy' => $validated['registration_policy'],
             'loyalty_enabled' => $request->boolean('loyalty_enabled'),
             'points_per_100' => $validated['points_per_100'],
+            'loyalty_spend_threshold' => $validated['loyalty_spend_threshold'],
         ];
 
         $attributes['logo_path'] = $this->resolveImage(

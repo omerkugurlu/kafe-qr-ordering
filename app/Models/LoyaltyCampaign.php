@@ -19,6 +19,8 @@ class LoyaltyCampaign extends Model
 
     public const REWARD_FIXED = 'fixed';
 
+    public const REWARD_PRODUCT = 'product';
+
     protected $fillable = [
         'cafe_id',
         'name',
@@ -26,6 +28,7 @@ class LoyaltyCampaign extends Model
         'threshold',
         'points_required',
         'reward_type',
+        'reward_product_id',
         'reward_value',
         'minimum_order_total',
         'is_active',
@@ -49,6 +52,11 @@ class LoyaltyCampaign extends Model
     public function cafe(): BelongsTo
     {
         return $this->belongsTo(Cafe::class);
+    }
+
+    public function rewardProduct(): BelongsTo
+    {
+        return $this->belongsTo(MenuProduct::class, 'reward_product_id');
     }
 
     public function transactions(): HasMany

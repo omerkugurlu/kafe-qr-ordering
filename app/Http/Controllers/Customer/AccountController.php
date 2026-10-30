@@ -64,6 +64,7 @@ final class AccountController extends Controller
             ? $cafe->loyaltyCampaigns()
                 ->where('is_active', true)
                 ->orderBy('name')
+                ->with('rewardProduct')
                 ->get()
                 ->filter(fn (LoyaltyCampaign $campaign): bool => $campaign->isCurrentlyActive())
                 ->map(function (LoyaltyCampaign $campaign) use ($account, $availableCampaignIds, $campaignOrderDeltas): array {
@@ -80,9 +81,11 @@ final class AccountController extends Controller
                         'required' => $required,
                         'progress' => min(100, (int) round($current / max(1, $required) * 100)),
                         'available' => in_array($campaign->id, $availableCampaignIds, true),
-                        'reward' => $campaign->reward_type === LoyaltyCampaign::REWARD_PERCENT
-                            ? '%'.rtrim(rtrim(number_format((float) $campaign->reward_value, 2, ',', ''), '0'), ',')
-                            : Money::format(Money::toCents((string) $campaign->reward_value)),
+                        'reward' => $campaign->reward_type === LoyaltyCampaign::REWARD_PRODUCT
+                            ? 'Ücretsiz: '.($campaign->rewardProduct?->name ?? 'ürün')
+                            : ($campaign->reward_type === LoyaltyCampaign::REWARD_PERCENT
+                                ? '%'.rtrim(rtrim(number_format((float) $campaign->reward_value, 2, ',', ''), '0'), ',')
+                                : Money::format(Money::toCents((string) $campaign->reward_value))),
                     ];
                 })
                 ->values()

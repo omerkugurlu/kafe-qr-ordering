@@ -145,6 +145,7 @@ class AdminCafeProvisioningTest extends TestCase
                 'brand_name' => 'K34',
                 'loyalty_enabled' => true,
                 'points_per_100' => 3,
+                'loyalty_spend_threshold' => 500,
             ])
             ->assertRedirect(route('platform.cafes.show', $cafe));
 
@@ -162,6 +163,7 @@ class AdminCafeProvisioningTest extends TestCase
         $this->assertSame('kafe-34-yeni', $cafe->slug);
         $this->assertSame(Cafe::POLICY_REQUIRED, $cafe->registration_policy);
         $this->assertSame(3, $cafe->points_per_100);
+        $this->assertSame(500, $cafe->loyalty_spend_threshold);
         $this->assertSame('Yeni Kafe Sahibi', $owner->name);
         $this->assertSame('owner-new@example.test', $owner->email);
         $this->assertTrue(Hash::check('New-Owner-Password-2026!', $owner->password));
