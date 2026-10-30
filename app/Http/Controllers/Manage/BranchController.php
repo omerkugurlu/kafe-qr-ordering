@@ -66,12 +66,19 @@ class BranchController extends Controller
                 $categoryRecommendationMap[$triggerCategoryId][] = $recommendedProduct->id;
             }
         }
+        $activeCategories = $categories->where('is_active', true)->values();
+        $initialTriggerCategory = $activeCategories->first(fn (MenuCategory $category): bool => ! empty($categoryRecommendationMap[$category->id]))
+            ?? $activeCategories->first();
+        $initialTriggerCategoryId = $initialTriggerCategory?->id;
+        $initialRecommendationProductIds = $initialTriggerCategoryId !== null
+            ? array_slice($categoryRecommendationMap[$initialTriggerCategoryId] ?? [], 0, 6)
+            : [];
         $availableProductCount = $suggestionPool->where('is_available', true)->count();
         $menuSources = Branch::query()->where('cafe_id', $branch->cafe_id)
             ->where('id', '!=', $branch->id)->where('is_active', true)->orderBy('name')->get(['id', 'name', 'uses_shared_menu']);
         $hasPrivateMenu = MenuCategory::query()->where('cafe_id', $branch->cafe_id)->where('branch_id', $branch->id)->exists();
 
-        return view('manage.branch', compact('branch', 'categories', 'selectedCategory', 'suggestionPool', 'recommendationProducts', 'categoryRecommendationMap', 'availableProductCount', 'menuSources', 'hasPrivateMenu'));
+        return view('manage.branch', compact('branch', 'categories', 'selectedCategory', 'suggestionPool', 'recommendationProducts', 'categoryRecommendationMap', 'initialTriggerCategoryId', 'initialRecommendationProductIds', 'availableProductCount', 'menuSources', 'hasPrivateMenu'));
     }
 
     public function store(Request $request, SubscriptionService $subscriptions): RedirectResponse

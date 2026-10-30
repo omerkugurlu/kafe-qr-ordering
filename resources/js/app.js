@@ -314,12 +314,21 @@ document.querySelectorAll('[data-recommendation-details]').forEach((details) => 
 
 document.querySelectorAll('[data-category-recommendation-manager]').forEach((manager) => {
     const form = manager.querySelector('[data-category-recommendation-form]');
-    const trigger = form?.querySelector('[data-recommendation-trigger]');
+    const triggerSearch = form?.querySelector('[data-recommendation-trigger-search]');
+    const triggerOptions = form?.querySelector('[data-recommendation-trigger-options]');
+    const triggerCount = form?.querySelector('[data-recommendation-trigger-count]');
     const options = form?.querySelector('[data-recommendation-product-options]');
     const search = form?.querySelector('[data-recommendation-product-search]');
     const count = form?.querySelector('[data-category-recommendation-count]');
     const message = form?.querySelector('[data-recommendation-message]');
-    if (!form || !trigger || !options || !search || !count) return;
+    if (!form || !triggerSearch || !triggerOptions || !triggerCount || !options || !search || !count) return;
+
+    const triggerCheckboxes = [...triggerOptions.querySelectorAll('input[type="checkbox"]')];
+
+    const updateTriggerCount = () => {
+        const selectedCount = triggerCheckboxes.filter((checkbox) => checkbox.checked).length;
+        triggerCount.textContent = `${selectedCount} kategori seçili`;
+    };
 
     const filter = () => {
         const activeCategory = manager.dataset.targetCategory ?? '';
@@ -347,17 +356,35 @@ document.querySelectorAll('[data-category-recommendation-manager]').forEach((man
         const selectedCount = options.querySelectorAll('input[type="checkbox"]:checked').length;
         count.textContent = `${selectedCount} / 6 seçili`;
     };
-    const loadTriggerCategory = () => {
-        const selectedIds = new Set((trigger.selectedOptions[0]?.dataset.suggestionProducts ?? '').split(',').filter(Boolean));
-        manager.dataset.targetCategory = '';
-        search.value = '';
-        options.querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
-            checkbox.checked = selectedIds.has(checkbox.value);
+    triggerSearch.addEventListener('input', () => {
+        const query = triggerSearch.value.trim().toLocaleLowerCase('tr-TR');
+        triggerOptions.querySelectorAll('[data-recommendation-trigger-option]').forEach((option) => {
+            option.hidden = !option.textContent.trim().toLocaleLowerCase('tr-TR').includes(query);
         });
-        if (message) message.textContent = '';
-        filter();
-        updateCount();
-    };
+    });
+    triggerOptions.addEventListener('change', (event) => {
+        const checkbox = event.target.closest?.('input[type="checkbox"]');
+        if (checkbox?.checked) {
+            const selectedIds = new Set([...options.querySelectorAll('input[type="checkbox"]:checked')].map((item) => item.value));
+            let hitLimit = false;
+            (checkbox.dataset.suggestionProducts ?? '').split(',').filter(Boolean).forEach((id) => {
+                if (selectedIds.has(id)) return;
+                if (selectedIds.size >= 6) {
+                    hitLimit = true;
+                    return;
+                }
+                selectedIds.add(id);
+            });
+            options.querySelectorAll('input[type="checkbox"]').forEach((item) => {
+                item.checked = selectedIds.has(item.value);
+            });
+            updateCount();
+            if (message) message.textContent = hitLimit ? 'En fazla 6 ürün seçebilirsin.' : '';
+        } else if (message) {
+            message.textContent = '';
+        }
+        updateTriggerCount();
+    });
 
     manager.querySelectorAll('[data-recommendation-target-filter]').forEach((button) => {
         button.addEventListener('click', () => {
@@ -394,9 +421,14 @@ document.querySelectorAll('[data-category-recommendation-manager]').forEach((man
         if (message) message.textContent = '';
         updateCount();
     });
-    trigger.addEventListener('change', loadTriggerCategory);
     filter();
-    loadTriggerCategory();
+    updateTriggerCount();
+    form.addEventListener('submit', (event) => {
+        if (triggerCheckboxes.some((checkbox) => checkbox.checked)) return;
+        event.preventDefault();
+        if (message) message.textContent = 'En az bir tetikleyici kategori seçmelisin.';
+        triggerCheckboxes[0]?.focus();
+    });
 });
 
 const categoryStrip = document.querySelector('[data-category-strip]');

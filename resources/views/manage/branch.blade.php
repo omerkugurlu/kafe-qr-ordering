@@ -484,16 +484,20 @@
             <div class="space-y-4 p-5">
                 <div class="flex items-start gap-3">
                     <span class="grid size-11 shrink-0 place-items-center rounded-full bg-sage text-forest"><x-ui.icon name="sparkles" class="size-5" /></span>
-                    <div><h2 id="recommendation-manager-title" class="font-display text-lg font-semibold text-ink">İyi gider önerileri</h2><p class="mt-1 text-sm leading-5 text-muted">Bir menü kategorisi seç, yanına önereceğin ürünleri işaretle.</p></div>
+                    <div><h2 id="recommendation-manager-title" class="font-display text-lg font-semibold text-ink">İyi gider önerileri</h2><p class="mt-1 text-sm leading-5 text-muted">Birden fazla kategori seç, hepsi için tamamlayıcı ürünleri belirle.</p></div>
                 </div>
                 @if ($activeCategories->isNotEmpty() && $recommendationProducts->isNotEmpty())
                     <form method="post" action="{{ route('manage.branches.category-recommendations.update', $branch) }}" class="space-y-4" data-category-recommendation-form>
                         @csrf @method('PATCH')
-                        <label class="block"><span class="label">Müşteri hangi kategoriden ürün aldığında?</span><select name="trigger_category_id" required data-recommendation-trigger class="input min-h-12 py-2 text-base">
-                            @foreach ($activeCategories as $triggerCategory)
-                                <option value="{{ $triggerCategory->id }}" data-suggestion-products="{{ implode(',', $categoryRecommendationMap[$triggerCategory->id] ?? []) }}">{{ $triggerCategory->name }}</option>
-                            @endforeach
-                        </select></label>
+                        <div>
+                            <div class="flex items-end justify-between gap-3"><div><span class="label">Müşteri hangi kategorilerden ürün aldığında?</span><p class="mt-1 text-sm leading-5 text-muted">Birden fazla kategori seçebilirsin. Seçilenlerin hepsinde aynı ürünler önerilir.</p></div><span data-recommendation-trigger-count class="shrink-0 rounded-full bg-sage px-2.5 py-1 text-xs font-bold text-forest">1 kategori seçili</span></div>
+                            <label class="mt-3 block"><span class="sr-only">Tetikleyici kategori ara</span><input type="search" data-recommendation-trigger-search autocomplete="off" class="input min-h-11 py-2 text-base" placeholder="Kategori ara"></label>
+                            <div data-recommendation-trigger-options role="group" aria-label="Müşterinin ürün alacağı kategoriler" class="mt-2 grid max-h-44 gap-1 overflow-y-auto rounded-xl border border-line bg-cream/50 p-2">
+                                @foreach ($activeCategories as $triggerCategory)
+                                    <label data-recommendation-trigger-option class="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl px-3 text-sm font-semibold text-ink hover:bg-paper"><input type="checkbox" name="trigger_category_ids[]" value="{{ $triggerCategory->id }}" data-suggestion-products="{{ implode(',', $categoryRecommendationMap[$triggerCategory->id] ?? []) }}" @checked($triggerCategory->id === $initialTriggerCategoryId) class="size-5 shrink-0 accent-forest"><span>{{ $triggerCategory->name }}</span></label>
+                                @endforeach
+                            </div>
+                        </div>
                         <div class="rounded-2xl border border-line bg-paper p-4">
                             <div class="flex items-center justify-between gap-2"><div><p class="text-base font-bold text-ink">Bunun yanında öner</p><p class="text-sm text-muted">En fazla 6 ürün seçebilirsin.</p></div><span data-category-recommendation-count class="shrink-0 rounded-full bg-sage px-2.5 py-1 text-xs font-bold text-forest">0 / 6 seçili</span></div>
                             <div class="mt-3"><span class="label">Önerilecek ürünlerin kategorisi</span><div data-recommendation-target-categories role="group" aria-label="Önerilecek ürün kategorisi" class="mt-1 flex flex-wrap gap-2">
@@ -505,7 +509,7 @@
                             <div class="mt-3 flex gap-2"><button type="button" data-recommendation-select-visible class="btn btn-secondary min-h-11 flex-1 text-sm">Görünenleri seç</button><button type="button" data-recommendation-clear class="btn btn-secondary min-h-11 flex-1 text-sm">Seçimi temizle</button></div>
                             <div data-recommendation-product-options aria-live="polite" class="mt-2 grid max-h-64 gap-1 overflow-y-auto rounded-xl bg-cream/50 p-2">
                                 @foreach ($recommendationProducts as $suggestion)
-                                    <label data-recommendation-product-option data-category-id="{{ $suggestion->category_id }}" class="flex min-h-12 items-center gap-3 rounded-xl px-3 text-sm font-semibold text-ink hover:bg-paper"><input type="checkbox" name="suggestion_product_ids[]" value="{{ $suggestion->id }}" class="size-5 shrink-0 accent-forest"><span class="min-w-0 flex-1 truncate">{{ $suggestion->name }}</span><span class="shrink-0 text-xs font-medium text-muted">{{ $categories->firstWhere('id', $suggestion->category_id)?->name }}</span></label>
+                                    <label data-recommendation-product-option data-category-id="{{ $suggestion->category_id }}" class="flex min-h-12 items-center gap-3 rounded-xl px-3 text-sm font-semibold text-ink hover:bg-paper"><input type="checkbox" name="suggestion_product_ids[]" value="{{ $suggestion->id }}" @checked(in_array($suggestion->id, $initialRecommendationProductIds, true)) class="size-5 shrink-0 accent-forest"><span class="min-w-0 flex-1 truncate">{{ $suggestion->name }}</span><span class="shrink-0 text-xs font-medium text-muted">{{ $categories->firstWhere('id', $suggestion->category_id)?->name }}</span></label>
                                 @endforeach
                                 <p data-recommendation-empty hidden class="col-span-full py-3 text-center text-sm font-medium text-muted">Bu kategoride ürün bulunamadı.</p>
                             </div>

@@ -103,12 +103,15 @@ class MenuProductController extends Controller
         Gate::authorize('update', $branch);
         $menuBranchId = $branch->uses_shared_menu ? null : $branch->id;
         $validated = $request->validate([
-            'trigger_category_id' => [
+            'trigger_category_ids' => ['required', 'array', 'min:1', 'max:50'],
+            'trigger_category_ids.*' => [
                 'required',
                 'integer',
+                'distinct',
                 Rule::exists('menu_categories', 'id')->where(fn ($query) => $query
                     ->where('cafe_id', $branch->cafe_id)
-                    ->where('branch_id', $menuBranchId)),
+                    ->where('branch_id', $menuBranchId)
+                    ->where('is_active', true)),
             ],
             'suggestion_product_ids' => ['nullable', 'array', 'max:6'],
             'suggestion_product_ids.*' => [
@@ -125,11 +128,11 @@ class MenuProductController extends Controller
             ],
         ]);
 
-        $triggerCategoryId = (int) $validated['trigger_category_id'];
+        $triggerCategoryIds = collect($validated['trigger_category_ids'])->map(fn ($id): int => (int) $id)->unique()->values()->all();
         $selectedProductIds = collect($validated['suggestion_product_ids'] ?? [])->map(fn ($id): int => (int) $id)->unique()->all();
-        $categoryMarker = 'category:'.$triggerCategoryId;
+        $categoryMarkers = collect($triggerCategoryIds)->map(fn (int $id): string => 'category:'.$id)->all();
 
-        DB::transaction(function () use ($request, $branch, $menuBranchId, $triggerCategoryId, $selectedProductIds, $categoryMarker): void {
+        DB::transaction(function () use ($request, $branch, $menuBranchId, $triggerCategoryIds, $selectedProductIds, $categoryMarkers): void {
             $products = MenuProduct::query()
                 ->where('cafe_id', $branch->cafe_id)
                 ->where('branch_id', $menuBranchId)
@@ -137,9 +140,9 @@ class MenuProductController extends Controller
                 ->get(['id', 'suggestions']);
 
             foreach ($products as $product) {
-                $suggestions = collect($product->suggestions ?? [])->reject(fn ($value): bool => $value === $categoryMarker);
+                $suggestions = collect($product->suggestions ?? [])->reject(fn ($value): bool => in_array($value, $categoryMarkers, true));
                 if (in_array($product->id, $selectedProductIds, true)) {
-                    $suggestions->push($categoryMarker);
+                    $suggestions->push(...$categoryMarkers);
                 }
                 $updatedSuggestions = $suggestions->values()->all();
                 if ($updatedSuggestions !== ($product->suggestions ?? [])) {
@@ -153,13 +156,13 @@ class MenuProductController extends Controller
                 'user_id' => $request->user()->id,
                 'action' => 'menu.category_recommendations_updated',
                 'subject_type' => MenuCategory::class,
-                'subject_id' => $triggerCategoryId,
-                'metadata' => ['product_ids' => $selectedProductIds],
+                'subject_id' => $triggerCategoryIds[0],
+                'metadata' => ['category_ids' => $triggerCategoryIds, 'product_ids' => $selectedProductIds],
                 'ip_address' => $request->ip(),
             ]);
         });
 
-        return redirect()->route('manage.branches.show', $branch)->with('status', 'Kategoriye özel iyi gider önerileri kaydedildi.');
+        return redirect()->route('manage.branches.show', $branch)->with('status', 'Seçili kategoriler için iyi gider önerileri kaydedildi.');
     }
 
     public function storeOptionGroup(Request $request, Branch $branch, int $productId): RedirectResponse
