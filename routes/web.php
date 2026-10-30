@@ -31,7 +31,6 @@ use App\Http\Controllers\Staff\TableSessionController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', fn () => view('home'))->name('home');
-Route::get('/media/external/{path}', [PublicMediaController::class, 'proxyExternal'])->where('path', '.*')->name('media.external');
 Route::get('/media/{path}', [PublicMediaController::class, 'show'])->where('path', '.*')->name('media.show');
 
 Route::middleware('guest')->group(function (): void {

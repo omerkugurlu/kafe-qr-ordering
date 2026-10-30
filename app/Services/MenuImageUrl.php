@@ -21,8 +21,9 @@ final class MenuImageUrl
                 && ! isset($parts['port'])
                 && ! isset($parts['query'])
                 && ! isset($parts['fragment'])
-                && self::isAllowedRemotePath($parts['path'] ?? '')) {
-                return url('/media/external/'.self::encodePath(ltrim($parts['path'], '/')));
+                && self::isAllowedRemotePath(rawurldecode($parts['path'] ?? ''))) {
+                $remotePath = rawurldecode($parts['path']);
+                return url('/media/menu-import/'.self::encodePath(substr($remotePath, strlen('/media/files/'))));
             }
 
             return $path;
@@ -37,7 +38,7 @@ final class MenuImageUrl
             return false;
         }
 
-        return preg_match('#\A/media/files/[A-Za-z0-9._/-]+\.(?:jpe?g|png|webp|gif|avif)\z#iD', $path) === 1;
+        return preg_match('#\A/media/files/[\pL\pN._/-]+\.(?:jpe?g|png|webp|gif|avif)\z#iuD', $path) === 1;
     }
 
     private static function encodePath(string $path): string
