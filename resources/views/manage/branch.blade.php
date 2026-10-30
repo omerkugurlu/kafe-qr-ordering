@@ -342,7 +342,12 @@
                             @csrf
                             @method('PATCH')
                             <p class="text-sm text-muted">En fazla 8 ürün seçin.</p>
-                            <label class="block"><span class="label">Kategori</span><select data-featured-category class="input min-h-11 py-2 text-sm"><option value="all">Tüm kategoriler</option>@foreach ($categories as $featuredCategory)<option value="{{ $featuredCategory->id }}">{{ $featuredCategory->name }}</option>@endforeach</select></label>
+                            <div><span class="label">Kategori</span><div data-featured-categories role="group" aria-label="Popüler ürün kategorisi" class="mt-1 grid max-h-36 grid-cols-2 gap-2 overflow-y-auto">
+                                <button type="button" data-featured-category-button data-category-id="all" aria-pressed="true" class="min-h-10 rounded-xl border border-forest bg-sage px-3 text-left text-sm font-semibold text-forest">Tüm kategoriler</button>
+                                @foreach ($categories as $featuredCategory)
+                                    <button type="button" data-featured-category-button data-category-id="{{ $featuredCategory->id }}" aria-pressed="false" class="min-h-10 truncate rounded-xl border border-line bg-paper px-3 text-left text-sm font-semibold text-ink hover:border-forest/50">{{ $featuredCategory->name }}</button>
+                                @endforeach
+                            </div></div>
                             <label class="block"><span class="label">Ürün ara</span><input type="search" data-featured-search class="input min-h-11 py-2 text-sm" placeholder="Ürün adı yazın..." autocomplete="off"></label>
                             <div data-featured-options class="grid max-h-56 gap-1 overflow-y-auto rounded-xl border border-line bg-cream/40 p-2">
                                 @foreach ($suggestionPool->where('is_available', true) as $featuredProduct)

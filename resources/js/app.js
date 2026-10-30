@@ -55,8 +55,18 @@ document.querySelectorAll('[data-featured-picker]').forEach((picker) => {
         if (count) count.textContent = `${selected} / 8 seçili`;
     };
     const filter = () => {
-        const categoryId = picker.querySelector('[data-featured-category]')?.value ?? 'all';
+        const categoryId = picker.dataset.activeFeaturedCategory ?? 'all';
         const query = picker.querySelector('[data-featured-search]')?.value.trim().toLocaleLowerCase('tr-TR') ?? '';
+        picker.querySelectorAll('[data-featured-category-button]').forEach((button) => {
+            const active = button.dataset.categoryId === categoryId;
+            button.setAttribute('aria-pressed', String(active));
+            button.classList.toggle('border-forest', active);
+            button.classList.toggle('bg-sage', active);
+            button.classList.toggle('text-forest', active);
+            button.classList.toggle('border-line', !active);
+            button.classList.toggle('bg-paper', !active);
+            button.classList.toggle('text-ink', !active);
+        });
         options?.querySelectorAll('[data-featured-option]').forEach((option) => {
             const name = option.querySelector('[data-featured-name]')?.textContent?.trim().toLocaleLowerCase('tr-TR') ?? '';
             option.hidden = (categoryId !== 'all' && option.dataset.categoryId !== categoryId) || !name.includes(query);
@@ -73,7 +83,12 @@ document.querySelectorAll('[data-featured-picker]').forEach((picker) => {
         }
         update();
     });
-    picker.querySelector('[data-featured-category]')?.addEventListener('change', filter);
+    picker.querySelectorAll('[data-featured-category-button]').forEach((button) => {
+        button.addEventListener('click', () => {
+            picker.dataset.activeFeaturedCategory = button.dataset.categoryId ?? 'all';
+            filter();
+        });
+    });
     picker.querySelector('[data-featured-search]')?.addEventListener('input', filter);
     picker.querySelector('[data-featured-select-visible]')?.addEventListener('click', () => {
         const checkboxes = [...(options?.querySelectorAll('[data-featured-option]:not([hidden]) input[type="checkbox"]') ?? [])];
@@ -158,9 +173,8 @@ const setupSuggestionPicker = (picker, options) => {
     picker.dataset.controlsReady = 'true';
 };
 
-document.addEventListener('toggle', (event) => {
-    const details = event.target;
-    if (!details.matches?.('[data-recommendation-details]') || !details.open) return;
+const initializeRecommendationDetails = (details) => {
+    if (!details.open || details.dataset.pickerInitialized === 'true') return;
 
     const picker = details.querySelector('[data-suggestion-picker]');
     const options = picker?.querySelector('[data-suggestion-options]');
@@ -181,6 +195,43 @@ document.addEventListener('toggle', (event) => {
 
         const firstSelectedProduct = options.querySelector('[data-suggestion-option] input[type="checkbox"]:checked')?.closest('[data-suggestion-option]');
         if (firstSelectedProduct) picker.dataset.activeProductCategory = firstSelectedProduct.dataset.suggestionCategoryId ?? '';
+
+        const filterProducts = () => {
+            const categoryId = picker.dataset.activeProductCategory ?? '';
+            const query = picker.querySelector('[data-suggestion-search]')?.value.trim().toLocaleLowerCase('tr-TR') ?? '';
+            const search = picker.querySelector('[data-suggestion-search]');
+            if (search) {
+                search.disabled = categoryId === '';
+                search.placeholder = categoryId === '' ? 'Önce yukarıdan kategori seçin' : 'Seçili kategoride ürün ara...';
+            }
+            let visibleCount = 0;
+            options.querySelectorAll('[data-suggestion-option]').forEach((option) => {
+                const name = option.querySelector('[data-suggestion-product-name]')?.textContent?.trim().toLocaleLowerCase('tr-TR') ?? '';
+                const categoryMatches = categoryId !== '' && option.dataset.suggestionCategoryId === categoryId;
+                option.hidden = !categoryMatches || !name.includes(query);
+                if (!option.hidden) visibleCount += 1;
+            });
+            let emptyState = options.querySelector('[data-suggestion-empty]');
+            if (!emptyState) {
+                emptyState = document.createElement('p');
+                emptyState.dataset.suggestionEmpty = '';
+                emptyState.className = 'col-span-full py-3 text-center text-sm font-medium text-muted';
+                options.append(emptyState);
+            }
+            emptyState.hidden = visibleCount > 0;
+            emptyState.textContent = categoryId === ''
+                ? 'Ürünleri görmek için yukarıdan bir kategori seçin.'
+                : 'Bu kategoride aramanızla eşleşen ürün bulunamadı.';
+            picker.querySelectorAll('[data-suggestion-category-filter]').forEach((button) => {
+                const active = button.dataset.categoryId === categoryId;
+                button.setAttribute('aria-pressed', String(active));
+                button.classList.toggle('border-forest', active);
+                button.classList.toggle('bg-sage', active);
+                button.classList.toggle('text-forest', active);
+                button.classList.toggle('bg-paper', !active);
+                button.classList.toggle('text-ink', !active);
+            });
+        };
 
         picker.querySelectorAll('[data-suggestion-category-filter]').forEach((button) => {
             button.addEventListener('click', () => {
@@ -216,7 +267,15 @@ document.addEventListener('toggle', (event) => {
         });
     }
     setupSuggestionPicker(categoryPicker, categoryOptions);
-}, true);
+    details.dataset.pickerInitialized = 'true';
+};
+
+document.querySelectorAll('[data-recommendation-details]').forEach((details) => {
+    const initialize = () => initializeRecommendationDetails(details);
+    details.addEventListener('toggle', initialize);
+    details.querySelector('summary')?.addEventListener('click', () => window.setTimeout(initialize, 0));
+    initialize();
+});
 
 const categoryStrip = document.querySelector('[data-category-strip]');
 if (categoryStrip) {
