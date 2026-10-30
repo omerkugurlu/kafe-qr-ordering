@@ -61,7 +61,7 @@ class MenuProductController extends Controller
             ]);
         });
 
-        return redirect()->route('manage.branches.show', $branch)->with('status', 'Popüler ürünler güncellendi.');
+        return redirect()->route('manage.branches.show', $branch)->with('status', 'Öne çıkan ürünler güncellendi.');
     }
 
     public function storeOptionGroup(Request $request, Branch $branch, int $productId): RedirectResponse
@@ -159,7 +159,10 @@ class MenuProductController extends Controller
         $product = $this->product($branch, $productId);
         $validated = $this->validateProduct($request, $branch, $product->id);
         $category = $this->category($branch, (int) $validated['category_id']);
-        $this->assertFeaturedLimit($branch, $request->boolean('is_featured'), $product->id);
+        $isFeatured = $request->exists('is_featured') ? $request->boolean('is_featured') : $product->is_featured;
+        if ($request->exists('is_featured')) {
+            $this->assertFeaturedLimit($branch, $isFeatured, $product->id);
+        }
         $product->fill([
             'category_id' => $category->id,
             'name' => $validated['name'],
@@ -173,7 +176,7 @@ class MenuProductController extends Controller
             'price' => $validated['price'],
             'prep_minutes' => $validated['prep_minutes'] ?? 0,
             'is_available' => $request->boolean('is_available'),
-            'is_featured' => $request->boolean('is_featured'),
+            'is_featured' => $isFeatured,
             'suggestions' => $this->recommendations($validated['suggestions'] ?? [], $validated['suggestion_category_ids'] ?? [], $product->id),
         ])->save();
         $this->log($request, $branch, $product, 'menu.product_updated');
@@ -374,7 +377,7 @@ class MenuProductController extends Controller
             ->when($ignoreProductId !== null, fn ($products) => $products->where('id', '!=', $ignoreProductId));
 
         if ($query->count() >= 8) {
-            throw ValidationException::withMessages(['is_featured' => 'Popüler bölümünde en fazla 8 ürün gösterebilirsiniz.']);
+            throw ValidationException::withMessages(['is_featured' => 'Öne çıkan ürünlerde en fazla 8 ürün gösterebilirsiniz.']);
         }
     }
 

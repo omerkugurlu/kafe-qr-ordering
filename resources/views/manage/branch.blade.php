@@ -243,10 +243,6 @@
                                                     <label class="flex min-h-9 items-center gap-2 text-xs font-semibold text-ink">
                                                         <input type="checkbox" name="is_available" value="1" @checked($product->is_available) class="size-4 accent-forest"> Menüde satışta
                                                     </label>
-                                                    <input type="hidden" name="is_featured" value="0">
-                                                    <label class="flex min-h-9 items-center gap-2 text-xs font-semibold text-ink">
-                                                        <input type="checkbox" name="is_featured" value="1" @checked($product->is_featured) class="size-4 accent-forest"> Öne çıkan ürün
-                                                    </label>
                                                 </div>
 
                                                 <div class="sm:col-span-2">
@@ -334,9 +330,9 @@
                 <section class="card overflow-hidden" aria-labelledby="featured-manager-title">
                     <div class="flex flex-wrap items-center gap-3 p-4">
                         <span class="grid size-10 shrink-0 place-items-center rounded-full bg-amber-soft text-amber-900"><x-ui.icon name="star" class="size-5" /></span>
-                        <span class="min-w-0 flex-1"><span id="featured-manager-title" class="block font-display text-lg font-semibold text-ink">Popüler ürünler</span><span class="block text-xs text-muted">Müşteri menüsünün üstünde göster</span></span>
+                        <span class="min-w-0 flex-1"><span id="featured-manager-title" class="block font-display text-lg font-semibold text-ink">Öne çıkan ürünler</span><span class="block text-xs text-muted">Müşteri menüsünün üstünde göster</span></span>
                         <span data-featured-count class="shrink-0 rounded-full bg-sage px-2.5 py-1 text-xs font-bold text-forest">{{ $suggestionPool->where('is_available', true)->where('is_featured', true)->count() }} / 8</span>
-                        <button type="submit" form="featured-products-form" class="btn btn-primary min-h-11 w-full sm:w-auto">Popüler ürünleri kaydet</button>
+                        <button type="submit" form="featured-products-form" class="btn btn-primary min-h-11 w-full sm:w-auto">Öne çıkan ürünleri kaydet</button>
                     </div>
                     <details>
                         <summary class="flex min-h-12 cursor-pointer list-none items-center border-t border-line px-4 py-3 text-sm font-semibold text-forest">
@@ -346,7 +342,7 @@
                             @csrf
                             @method('PATCH')
                             <p class="text-sm text-muted">En fazla 8 ürün seçin.</p>
-                            <div><span class="label">Kategori</span><div data-featured-categories role="group" aria-label="Popüler ürün kategorisi" class="mt-1 grid max-h-36 grid-cols-2 gap-2 overflow-y-auto">
+                            <div><span class="label">Kategori</span><div data-featured-categories role="group" aria-label="Öne çıkan ürün kategorisi" class="mt-1 grid max-h-36 grid-cols-2 gap-2 overflow-y-auto">
                                 <button type="button" data-featured-category-button data-category-id="all" aria-pressed="true" class="min-h-10 rounded-xl border border-forest bg-sage px-3 text-left text-sm font-semibold text-forest">Tüm kategoriler</button>
                                 @foreach ($categories as $featuredCategory)
                                     <button type="button" data-featured-category-button data-category-id="{{ $featuredCategory->id }}" aria-pressed="false" class="min-h-10 truncate rounded-xl border border-line bg-paper px-3 text-left text-sm font-semibold text-ink hover:border-forest/50">{{ $featuredCategory->name }}</button>
@@ -365,7 +361,7 @@
                             <div class="grid gap-2">
                                 <button type="button" data-featured-select-visible class="btn btn-secondary min-h-11 w-full">Görünenleri seç</button>
                                 <button type="button" data-featured-clear class="btn btn-secondary min-h-11 w-full">Seçimi temizle</button>
-                                <button type="submit" class="btn btn-primary min-h-11 w-full">Popüler ürünleri kaydet</button>
+                                <button type="submit" class="btn btn-primary min-h-11 w-full">Öne çıkan ürünleri kaydet</button>
                             </div>
                         </form>
                     </details>
@@ -444,10 +440,6 @@
                         <input type="hidden" name="is_available" value="0">
                         <label class="flex min-h-9 items-center gap-2 text-xs font-semibold text-ink">
                             <input type="checkbox" name="is_available" value="1" checked class="size-4 accent-forest"> Satışta
-                        </label>
-                        <input type="hidden" name="is_featured" value="0">
-                        <label class="flex min-h-9 items-center gap-2 text-xs font-semibold text-ink">
-                            <input type="checkbox" name="is_featured" value="1" @checked(old('is_featured')) class="size-4 accent-forest"> Öne çıkan
                         </label>
                         @if ($suggestionPool->isNotEmpty())
                             <details data-recommendation-details class="rounded-2xl border border-line bg-paper p-3">
