@@ -98,7 +98,7 @@ class Coupon extends Model
     public static function evaluate(?self $coupon, int $subtotalCents): array
     {
         if ($coupon === null) {
-            return ['valid' => false, 'message' => 'Kupon kodu bulunamadı.', 'discount_cents' => 0];
+            return ['valid' => false, 'message' => 'Kupon geçersiz.', 'discount_cents' => 0];
         }
 
         if (! $coupon->isCurrentlyActive()) {

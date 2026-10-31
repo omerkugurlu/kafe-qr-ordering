@@ -29,7 +29,11 @@ class QrOrderingFlowTest extends TestCase
         $menuResponse
             ->assertOk()
             ->assertSee('Kıyı Kahve')
-            ->assertSee('Filtre kahve');
+            ->assertSee('Filtre kahve')
+            ->assertSee('data-customer-category-scroll="left"', false)
+            ->assertSee('data-customer-category-scroll="right"', false)
+            ->assertSee('category-scrollbar', false)
+            ->assertSee('aria-label="Menü kategorileri"', false);
         $session = TableSession::query()->where('dining_table_id', $table->id)->where('status', TableSession::STATUS_OPEN)->firstOrFail();
         preg_match('~<script type="application/json" id="menu-data">(.*?)</script>~s', $menuResponse->getContent(), $matches);
         $menuData = json_decode($matches[1] ?? '', true);

@@ -280,6 +280,24 @@
         display: none;
     }
 
+    .category-scrollbar {
+        scrollbar-width: thin;
+        scrollbar-color: rgb(23 63 52 / 42%) transparent;
+    }
+
+    .category-scrollbar::-webkit-scrollbar {
+        height: 4px;
+    }
+
+    .category-scrollbar::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .category-scrollbar::-webkit-scrollbar-thumb {
+        border-radius: 999px;
+        background: rgb(23 63 52 / 42%);
+    }
+
     .text-balance {
         text-wrap: balance;
     }

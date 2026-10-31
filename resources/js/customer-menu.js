@@ -103,6 +103,34 @@ function initMenu(root, data) {
     let statusesInitialised = false;
     let couponTimer = null;
 
+    const categoryStrip = document.getElementById('category-chips');
+    const categoryScrollButtons = [...document.querySelectorAll('[data-customer-category-scroll]')];
+    const updateCategoryStripControls = () => {
+        if (!categoryStrip) return;
+
+        const canScroll = categoryStrip.scrollWidth > categoryStrip.clientWidth + 1;
+        categoryScrollButtons.forEach((button) => {
+            button.hidden = !canScroll;
+            button.disabled = button.dataset.customerCategoryScroll === 'left'
+                ? categoryStrip.scrollLeft <= 1
+                : categoryStrip.scrollLeft + categoryStrip.clientWidth >= categoryStrip.scrollWidth - 1;
+        });
+    };
+
+    categoryScrollButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+            if (!categoryStrip) return;
+
+            const direction = button.dataset.customerCategoryScroll === 'left' ? -1 : 1;
+            categoryStrip.scrollBy({
+                left: direction * Math.max(180, categoryStrip.clientWidth * 0.72),
+                behavior: 'smooth',
+            });
+        });
+    });
+    categoryStrip?.addEventListener('scroll', updateCategoryStripControls, { passive: true });
+    window.addEventListener('resize', updateCategoryStripControls, { passive: true });
+
     document.querySelector('[data-featured-prev]')?.addEventListener('click', () => scrollFeatured(-1));
     document.querySelector('[data-featured-next]')?.addEventListener('click', () => scrollFeatured(1));
     document.getElementById('featured-products')?.addEventListener('scroll', updateFeaturedControls, { passive: true });
@@ -458,6 +486,20 @@ function initMenu(root, data) {
                 ${escapeHtml(category.name)}
             </button>
         `).join('');
+
+        window.requestAnimationFrame(() => {
+            const selected = [...root.querySelectorAll('[data-category]')]
+                .find((button) => button.dataset.category === activeCategory);
+
+            if (selected && categoryStrip) {
+                if (activeCategory === 'all') {
+                    categoryStrip.scrollTo({ left: 0, behavior: 'smooth' });
+                } else {
+                    selected.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                }
+            }
+            updateCategoryStripControls();
+        });
     }
 
     function renderFeatured() {
@@ -1605,12 +1647,12 @@ function initMenu(root, data) {
 
                 if (!response.ok) {
                     coupon = null;
+                    renderCart();
                     if (message) {
                         message.textContent = response.message || strings.coupon_invalid;
                         message.className = 'mt-2 text-xs font-bold text-danger';
                         message.hidden = false;
                     }
-                    renderCart();
                     return;
                 }
 

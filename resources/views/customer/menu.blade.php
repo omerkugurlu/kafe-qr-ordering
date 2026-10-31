@@ -188,7 +188,15 @@
                     </span>
                     <input id="menu-search" type="search" class="input h-12 pl-12 pr-4" placeholder="{{ __('customer.search_placeholder') }}" autocomplete="off">
                 </label>
-                <div id="category-chips" class="scroll-hidden mt-3 flex gap-2 overflow-x-auto pb-0.5" aria-label="{{ __('customer.menu') }}"></div>
+                <div class="mt-3 flex min-w-0 items-center gap-2" aria-label="{{ __('customer.category_filters') }}">
+                    <button type="button" data-customer-category-scroll="left" aria-label="{{ __('customer.previous_categories') }}" class="grid size-10 shrink-0 place-items-center rounded-full border border-line bg-paper text-forest shadow-sm transition hover:border-forest/30 hover:bg-sage/50 disabled:cursor-not-allowed disabled:opacity-40" hidden>
+                        <x-ui.icon name="arrow-left" class="size-4" />
+                    </button>
+                    <div id="category-chips" class="category-scrollbar flex min-w-0 flex-1 gap-2 overflow-x-auto scroll-smooth py-1" role="group" aria-label="{{ __('customer.category_filters') }}" tabindex="0"></div>
+                    <button type="button" data-customer-category-scroll="right" aria-label="{{ __('customer.next_categories') }}" class="grid size-10 shrink-0 place-items-center rounded-full border border-line bg-paper text-forest shadow-sm transition hover:border-forest/30 hover:bg-sage/50 disabled:cursor-not-allowed disabled:opacity-40" hidden>
+                        <x-ui.icon name="arrow-right" class="size-4" />
+                    </button>
+                </div>
             </div>
         </div>
 

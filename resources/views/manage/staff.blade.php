@@ -89,8 +89,8 @@
 
         <section class="space-y-3">
             @forelse ($staff as $person)
-                <article class="card p-5">
-                    <div class="flex flex-wrap items-start justify-between gap-3">
+                <details class="card group p-5">
+                    <summary class="flex cursor-pointer list-none flex-wrap items-start justify-between gap-3 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2">
                         <div class="flex min-w-0 items-center gap-3">
                             <span class="grid size-11 shrink-0 place-items-center rounded-full bg-cream font-display text-lg font-semibold text-forest">
                                 {{ mb_substr($person->name, 0, 1) }}
@@ -103,8 +103,12 @@
                         <div class="flex items-center gap-2">
                             <span class="badge badge-neutral">{{ $roleLabels[$person->role] ?? $person->role }}</span>
                             <span class="badge {{ $person->is_active ? 'badge-ready' : 'badge-cancelled' }}">{{ $person->is_active ? 'Etkin' : 'Kapalı' }}</span>
+                            <span class="ml-1 inline-flex min-h-10 items-center gap-1.5 rounded-full border border-line px-3 text-xs font-bold text-forest transition group-open:bg-sage/50">
+                                <span class="group-open:hidden">Düzenle</span><span class="hidden group-open:inline">Kapat</span>
+                                <svg class="size-4 transition-transform group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+                            </span>
                         </div>
-                    </div>
+                    </summary>
 
                     <form method="post" action="{{ route('manage.staff.update', $person) }}" class="mt-4 space-y-4 border-t border-line pt-4">
                         @csrf
@@ -163,7 +167,7 @@
                             </button>
                         </div>
                     </form>
-                </article>
+                </details>
             @empty
                 <div class="card p-10 text-center">
                     <span class="mx-auto grid size-14 place-items-center rounded-full bg-sage text-forest"><x-ui.icon name="users" class="size-6" /></span>
