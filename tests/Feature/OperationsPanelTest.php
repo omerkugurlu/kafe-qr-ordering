@@ -391,7 +391,8 @@ class OperationsPanelTest extends TestCase
 
         $this->actingAs($waiter)->post(route('staff.sessions.payments.store', $session->id), [
             'method' => Payment::METHOD_CASH,
-            'amount' => '250.00',
+            'items' => [$order->items()->firstOrFail()->id => 2],
+            'cash_received' => '250.00',
         ])->assertRedirect();
 
         $this->assertDatabaseHas('table_sessions', ['id' => $session->id, 'status' => TableSession::STATUS_CLOSED]);

@@ -80,8 +80,11 @@ Route::middleware(['auth', 'auth.session', 'role:platform_admin'])->prefix('plat
     Route::patch('/cafeler/{cafe}/durum', [CafeController::class, 'toggleStatus'])->middleware('throttle:admin-write')->name('cafes.status');
 });
 
+Route::get('/yonetim', [DashboardController::class, 'index'])
+    ->middleware(['auth', 'auth.session', 'role:platform_admin,cafe_owner,cafe_manager'])
+    ->name('manage.dashboard');
+
 Route::middleware(['auth', 'auth.session', 'role:cafe_owner,cafe_manager'])->prefix('yonetim')->name('manage.')->group(function (): void {
-    Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/paket', [ManageSubscriptionController::class, 'index'])->middleware('role:cafe_owner')->name('subscription.index');
     Route::post('/paket/talep', [ManageSubscriptionController::class, 'requestPlan'])->middleware(['role:cafe_owner', 'throttle:admin-write'])->name('subscription.request');
 

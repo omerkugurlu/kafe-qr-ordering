@@ -58,6 +58,58 @@ class AdminCafeProvisioningTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_platform_admin_visiting_the_cafe_management_root_is_redirected_to_platform_dashboard(): void
+    {
+        $admin = User::factory()->create([
+            'role' => User::ROLE_PLATFORM_ADMIN,
+            'is_active' => true,
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('manage.dashboard'))
+            ->assertRedirect(route('platform.dashboard'));
+    }
+
+    public function test_platform_admin_login_does_not_return_to_owner_only_intended_url(): void
+    {
+        $admin = User::factory()->create([
+            'email' => 'root@example.test',
+            'password' => 'Admin-Password-2026!',
+            'role' => User::ROLE_PLATFORM_ADMIN,
+            'is_active' => true,
+        ]);
+
+        $this->get(route('manage.dashboard'))->assertRedirect(route('login'));
+
+        $this->post(route('login.store'), [
+            'email' => $admin->email,
+            'password' => 'Admin-Password-2026!',
+        ])->assertRedirect(route('platform.dashboard'));
+
+        $this->assertAuthenticatedAs($admin);
+    }
+
+    public function test_cafe_owner_login_ignores_platform_only_intended_url(): void
+    {
+        $cafe = Cafe::query()->create(['name' => 'Kıyı Kafe', 'slug' => 'kiyi-kafe', 'status' => Cafe::STATUS_ACTIVE]);
+        $owner = User::factory()->create([
+            'email' => 'owner@example.test',
+            'password' => 'Owner-Password-2026!',
+            'role' => User::ROLE_CAFE_OWNER,
+            'cafe_id' => $cafe->id,
+            'is_active' => true,
+        ]);
+
+        $this->get(route('platform.dashboard'))->assertRedirect(route('login'));
+
+        $this->post(route('login.store'), [
+            'email' => $owner->email,
+            'password' => 'Owner-Password-2026!',
+        ])->assertRedirect(route('manage.dashboard'));
+
+        $this->assertAuthenticatedAs($owner);
+    }
+
     public function test_first_platform_administrator_is_created_interactively_with_hashed_password(): void
     {
         $this->artisan('app:create-platform-admin')

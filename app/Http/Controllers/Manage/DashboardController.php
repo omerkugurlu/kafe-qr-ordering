@@ -9,6 +9,7 @@ use App\Models\Payment;
 use App\Models\TableSession;
 use App\Models\User;
 use App\Services\Money;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -16,8 +17,12 @@ use Illuminate\View\View;
 
 class DashboardController extends Controller
 {
-    public function index(Request $request): View
+    public function index(Request $request): View|RedirectResponse
     {
+        if ($request->user()->isPlatformAdmin()) {
+            return redirect()->route('platform.dashboard');
+        }
+
         $cafe = $request->user()->cafe;
         abort_unless($cafe !== null, 404);
 

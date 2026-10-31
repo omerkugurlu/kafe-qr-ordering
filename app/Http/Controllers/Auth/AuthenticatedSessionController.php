@@ -49,7 +49,47 @@ class AuthenticatedSessionController extends Controller
             default => route('manage.dashboard'),
         };
 
-        return redirect()->intended($destination);
+        $intendedUrl = $request->session()->pull('url.intended');
+
+        if ($this->canUseIntendedUrl($request, $user, $intendedUrl)) {
+            return redirect()->to($intendedUrl);
+        }
+
+        return redirect()->to($destination);
+    }
+
+    private function canUseIntendedUrl(Request $request, User $user, mixed $url): bool
+    {
+        if (! is_string($url) || $url === '') {
+            return false;
+        }
+
+        $parts = parse_url($url);
+        if ($parts === false) {
+            return false;
+        }
+
+        $host = strtolower((string) ($parts['host'] ?? $request->getHost()));
+        if (! hash_equals(strtolower($request->getHost()), $host)) {
+            return false;
+        }
+
+        $path = '/'.ltrim((string) ($parts['path'] ?? '/'), '/');
+        $prefixes = match ($user->role) {
+            User::ROLE_PLATFORM_ADMIN => ['/platform'],
+            User::ROLE_CAFE_OWNER, User::ROLE_CAFE_MANAGER => ['/yonetim', '/garson'],
+            User::ROLE_WAITER => ['/garson'],
+            User::ROLE_KITCHEN => ['/mutfak', '/garson'],
+            default => [],
+        };
+
+        foreach ($prefixes as $prefix) {
+            if ($path === $prefix || str_starts_with($path, $prefix.'/')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function destroy(Request $request): RedirectResponse
