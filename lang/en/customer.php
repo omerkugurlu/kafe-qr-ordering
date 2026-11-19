@@ -82,6 +82,7 @@ return [
     'quantity' => 'Quantity',
     'required' => 'Required',
     'optional' => 'Optional',
+    'optional_multiple' => 'Optional · up to :count choices',
     'choose' => 'Choose',
     'prep_time' => ':minutes min',
     'cart_added' => 'Added to your cart.',

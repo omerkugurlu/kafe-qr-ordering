@@ -60,6 +60,8 @@ class TableSessionController extends Controller
                 'opened_at' => now(),
             ]);
 
+            $session->claimForWaiter($request->user());
+
             ActivityLog::query()->create([
                 'cafe_id' => $cafe->id,
                 'branch_id' => $lockedBranch->id,
@@ -123,6 +125,20 @@ class TableSessionController extends Controller
         ));
 
         return view('staff.session', compact('session', 'categories', 'dueCents', 'splitDueCents', 'itemDueCents', 'activePayments', 'activeSplitGroup', 'splitPaidCount'));
+    }
+
+    public function heartbeat(Request $request, int $sessionId): JsonResponse
+    {
+        $session = TableSession::query()->with('branch')->findOrFail($sessionId);
+        Gate::authorize('view', $session->branch);
+        abort_unless($request->user()->role === User::ROLE_WAITER, 403);
+        abort_unless(
+            $session->claimForWaiter($request->user()),
+            409,
+            'Bu adisyon başka bir garsona geçti. Panoyu yenileyip tekrar açın.',
+        );
+
+        return response()->json(['ok' => true]);
     }
 
     public function addItems(Request $request, int $sessionId, OrderSettlementService $settlement, ProductOptionSelectionService $optionSelection): RedirectResponse

@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class TableSession extends Model
 {
@@ -14,6 +16,8 @@ class TableSession extends Model
     public const STATUS_OPEN = 'open';
 
     public const STATUS_CLOSED = 'closed';
+
+    public const WAITER_CLAIM_TTL_SECONDS = 30;
 
     protected $fillable = [
         'branch_id',
@@ -51,29 +55,66 @@ class TableSession extends Model
 
     public function claimForWaiter(User $waiter): bool
     {
-        if ($this->status !== self::STATUS_OPEN) {
+        if ($this->status !== self::STATUS_OPEN || $waiter->role !== User::ROLE_WAITER) {
             return false;
         }
 
-        $openedBy = $this->openedBy()->first();
-        if ($openedBy?->role === User::ROLE_WAITER) {
-            return (int) $openedBy->id === (int) $waiter->id;
-        }
+        $claimed = DB::transaction(function () use ($waiter): bool {
+            $session = self::query()->whereKey($this->id)->lockForUpdate()->first();
+            if ($session === null || $session->status !== self::STATUS_OPEN) {
+                return false;
+            }
 
-        $claimed = self::query()
-            ->whereKey($this->id)
-            ->where('status', self::STATUS_OPEN)
-            ->where(function ($query): void {
-                $query->whereNull('opened_by')
-                    ->orWhereNotIn('opened_by', User::query()->select('id')->where('role', User::ROLE_WAITER));
-            })
-            ->update(['opened_by' => $waiter->id, 'updated_at' => now()]);
+            $ownerId = (int) $session->opened_by;
+            $ownerRole = $ownerId > 0 ? User::query()->whereKey($ownerId)->value('role') : null;
+            $activeOwnerId = Cache::get($this->waiterClaimCacheKey());
 
-        if ($claimed === 1) {
+            if (
+                $ownerRole === User::ROLE_WAITER
+                && $ownerId !== (int) $waiter->id
+                && is_numeric($activeOwnerId)
+                && (int) $activeOwnerId === $ownerId
+            ) {
+                return false;
+            }
+
+            if ($ownerId !== (int) $waiter->id) {
+                $session->forceFill(['opened_by' => $waiter->id])->save();
+            }
+
+            Cache::put(
+                $this->waiterClaimCacheKey(),
+                (int) $waiter->id,
+                now()->addSeconds(self::WAITER_CLAIM_TTL_SECONDS),
+            );
+
+            return true;
+        });
+
+        if ($claimed) {
             $this->opened_by = $waiter->id;
+            $this->setRelation('openedBy', $waiter);
         }
 
-        return $claimed === 1;
+        return $claimed;
+    }
+
+    public function activeWaiterOwnerId(): ?int
+    {
+        if ($this->status !== self::STATUS_OPEN) {
+            return null;
+        }
+
+        $ownerId = Cache::get($this->waiterClaimCacheKey());
+
+        return is_numeric($ownerId) && (int) $ownerId === (int) $this->opened_by
+            ? (int) $ownerId
+            : null;
+    }
+
+    private function waiterClaimCacheKey(): string
+    {
+        return 'table-session-waiter-claim:'.$this->getKey();
     }
 
     public function diningTable(): BelongsTo

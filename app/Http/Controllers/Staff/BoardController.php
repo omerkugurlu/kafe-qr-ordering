@@ -79,7 +79,10 @@ class BoardController extends Controller
             ->map(function ($table) use ($openSessions, $latestSessions): array {
                 $session = $openSessions->get($table->id);
                 $lastSession = $latestSessions->get($table->id);
-                $assignedWaiter = $session?->openedBy?->role === User::ROLE_WAITER ? $session->openedBy : null;
+                $assignedWaiter = $session?->activeWaiterOwnerId() !== null
+                    && $session->openedBy?->role === User::ROLE_WAITER
+                    ? $session->openedBy
+                    : null;
 
                 return [
                     'id' => $table->id,

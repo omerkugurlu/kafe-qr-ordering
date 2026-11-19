@@ -38,6 +38,34 @@
             </div>
         </section>
 
+        <section class="mt-4" aria-labelledby="staff-orders-title">
+            <div class="mb-2 flex items-end justify-between gap-2">
+                <div>
+                    <h2 id="staff-orders-title" class="font-display text-xl font-semibold text-ink">Siparişler</h2>
+                    <p class="text-xs text-muted">Hazır siparişleri teslim edildi olarak işaretleyin.</p>
+                </div>
+            </div>
+            <div class="grid gap-3 lg:grid-cols-3">
+                @foreach ([
+                    ['key' => 'pending', 'title' => 'Gelen siparişler', 'dot' => 'bg-amber'],
+                    ['key' => 'accepted', 'title' => 'Hazırlanıyor', 'dot' => 'bg-terracotta'],
+                    ['key' => 'ready', 'title' => 'Hazır · teslim edilecek', 'dot' => 'bg-success'],
+                ] as $lane)
+                    <section class="card-flat flex min-h-40 flex-col overflow-hidden">
+                        <header class="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
+                            <div class="flex items-center gap-2">
+                                <span class="size-2 rounded-full {{ $lane['dot'] }}"></span>
+                                <h3 class="font-display text-base font-semibold text-ink">{{ $lane['title'] }}</h3>
+                            </div>
+                            <span class="badge badge-neutral" data-lane-count="{{ $lane['key'] }}">0</span>
+                        </header>
+                        <div class="flex-1 space-y-2 p-3" data-lane-body="{{ $lane['key'] }}"></div>
+                    </section>
+                @endforeach
+                <p class="lg:col-span-3 text-center text-[11px] font-medium text-muted">Son güncelleme: <span data-updated>şimdi</span> · Her 5 saniyede yenilenir</p>
+            </div>
+        </section>
+
         <section class="mt-4" aria-labelledby="staff-tables-title">
             <div class="mb-2 flex items-center justify-between gap-2">
                 <div><h2 id="staff-tables-title" class="font-display text-xl font-semibold text-ink">Masalar</h2><p class="text-xs text-muted">Adisyon durumu ve ödeme</p></div>

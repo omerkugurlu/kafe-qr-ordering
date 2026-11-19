@@ -82,6 +82,7 @@ return [
     'quantity' => 'Adet',
     'required' => 'Zorunlu',
     'optional' => 'İsteğe bağlı',
+    'optional_multiple' => 'İsteğe bağlı · en fazla :count seçenek',
     'choose' => 'Seçin',
     'prep_time' => ':minutes dk',
     'cart_added' => 'Sepete eklendi.',

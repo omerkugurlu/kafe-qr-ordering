@@ -11,6 +11,10 @@
         $dueLabel = $dueCents > 0 ? 'Tahsilat bekliyor' : ($totalCents === 0 ? 'Henüz sipariş yok' : 'Hesap kapandı');
     @endphp
 
+    @if ($session->status === 'open' && auth()->user()?->role === \App\Models\User::ROLE_WAITER)
+        <div hidden data-session-ownership-heartbeat data-url="{{ route('staff.sessions.heartbeat', $session->id) }}"></div>
+    @endif
+
     <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
         <a href="{{ auth()->user()?->hasRole(\App\Models\User::ROLE_CAFE_OWNER, \App\Models\User::ROLE_CAFE_MANAGER) ? route('manage.orders.index', ['sube' => $session->branch_id]) : route('staff.branch', $session->branch_id) }}" class="inline-flex min-h-10 items-center gap-2 text-sm font-bold text-forest transition hover:text-ink">
             <x-ui.icon name="arrow-left" class="size-4" />
