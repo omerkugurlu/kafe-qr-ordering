@@ -72,26 +72,62 @@
                 <h2 class="mt-1 font-display text-2xl font-semibold">Kafe paketleri ve süreleri</h2>
                 <p class="mt-1 text-sm text-muted">Kafe paketini, masa ve şube sınırlarını, özellikleri ve bitiş tarihini buradan elle düzenleyebilirsiniz.</p>
             </div>
-            <div class="space-y-3">
+            <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 @forelse ($cafes as $record)
                     @php($cafe = $record['cafe'])
                     @php($current = $record['current'])
                     @php($pending = $record['pending'])
-                    <article class="card p-5">
-                        <div class="flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                                <h3 class="font-display text-xl font-semibold">{{ $cafe->name }}</h3>
-                                <p class="mt-1 text-sm text-muted">{{ $current ? $current->plan_name_snapshot.' · '.max(0, today()->diffInDays($current->ends_at->timezone('Europe/Istanbul')->startOfDay(), false)).' gün kaldı · '.$current->ends_at->timezone('Europe/Istanbul')->format('d.m.Y').' bitiş' : 'Paket atanmamış' }}</p>
-                                <p class="mt-1 text-xs text-muted">{{ $record['branches'] }} şube · {{ $record['tables'] }} masa @if($record['owner']) · {{ $record['owner']->email }} @endif</p>
-                                @if($pending)<span class="badge-pending mt-2">Bekleyen talep: {{ $pending->plan_name_snapshot }}</span>@endif
+                    <button
+                        type="button"
+                        class="card group flex min-h-36 w-full flex-col justify-between gap-4 p-4 text-left transition duration-200 hover:-translate-y-0.5 hover:border-forest/30 hover:shadow-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-forest sm:p-5"
+                        data-cafe-dialog-open="cafe-subscription-{{ $cafe->id }}"
+                        aria-haspopup="dialog"
+                        aria-controls="cafe-subscription-{{ $cafe->id }}"
+                    >
+                        <span class="flex w-full items-start justify-between gap-3">
+                            <span class="min-w-0">
+                                <span class="block truncate font-display text-lg font-semibold">{{ $cafe->name }}</span>
+                                <span class="mt-1 block truncate text-sm text-muted">{{ $current?->plan_name_snapshot ?? 'Paket atanmamış' }}</span>
+                            </span>
+                            <span class="grid size-9 shrink-0 place-items-center rounded-full bg-cream text-forest transition group-hover:bg-forest group-hover:text-white" aria-hidden="true">
+                                <x-ui.icon name="arrow-right" class="size-4" />
+                            </span>
+                        </span>
+                        <span class="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+                            <span>{{ $record['branches'] }} şube</span>
+                            <span aria-hidden="true">·</span>
+                            <span>{{ $record['tables'] }} masa</span>
+                            @if($current)
+                                <span aria-hidden="true">·</span>
+                                <span>{{ max(0, today()->diffInDays($current->ends_at->timezone('Europe/Istanbul')->startOfDay(), false)) }} gün kaldı</span>
+                            @endif
+                        </span>
+                        @if($pending)
+                            <span class="badge-pending self-start">Bekleyen talep: {{ $pending->plan_name_snapshot }}</span>
+                        @endif
+                        <span class="sr-only">Paket ve abonelik ayrıntılarını düzenle</span>
+                    </button>
+
+                    <dialog id="cafe-subscription-{{ $cafe->id }}" data-cafe-subscription-dialog aria-labelledby="cafe-subscription-title-{{ $cafe->id }}" class="m-auto max-h-[min(90dvh,56rem)] w-[min(58rem,calc(100%-2rem))] max-w-none overflow-y-auto rounded-3xl border border-line bg-paper p-0 text-ink shadow-lift backdrop:bg-ink/50 backdrop:backdrop-blur-sm">
+                        <header class="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-line bg-paper/95 px-5 py-4 backdrop-blur sm:px-7">
+                            <div class="min-w-0">
+                                <p class="eyebrow">Kafe aboneliği</p>
+                                <h3 id="cafe-subscription-title-{{ $cafe->id }}" class="mt-1 truncate font-display text-xl font-semibold">{{ $cafe->name }}</h3>
+                                <p class="mt-1 text-xs text-muted">{{ $record['branches'] }} şube · {{ $record['tables'] }} masa @if($record['owner']) · {{ $record['owner']->email }} @endif @if($current) · {{ $current->ends_at->timezone('Europe/Istanbul')->format('d.m.Y') }} bitiş @endif</p>
                             </div>
+                            <button type="button" class="btn-icon shrink-0" data-cafe-dialog-close aria-label="Düzenleme panelini kapat">
+                                <x-ui.icon name="x" class="size-5" />
+                            </button>
+                        </header>
+                        <div class="p-5 sm:p-7">
+                            @if($pending)<p class="badge-pending mb-4">Bekleyen talep: {{ $pending->plan_name_snapshot }}</p>@endif
                             <form method="post" action="{{ route('platform.subscriptions.cafes.assign', $cafe) }}" class="grid w-full gap-3 md:grid-cols-2 xl:w-full xl:grid-cols-4">
                                 @csrf
                                 <label><span class="label">Paket adı</span><select class="input" name="plan_id" required>@foreach($plans as $plan)<option value="{{ $plan->id }}" @selected(($current?->subscription_plan_id ?? $pending?->subscription_plan_id) === $plan->id)>{{ $plan->name }}</option>@endforeach</select></label>
                                 <label><span class="label">Yıllık fiyat (₺)</span><input class="input" type="number" name="annual_price_tl" min="0" max="1000000" step="0.01" value="{{ number_format(($current?->annual_price_snapshot_cents ?? $pending?->annual_price_snapshot_cents ?? 0) / 100, 2, '.', '') }}" required></label>
                                 <label><span class="label">Masa sınırı</span><input class="input" type="number" name="max_tables" min="1" max="5000" value="{{ $current?->max_tables_snapshot ?? $pending?->max_tables_snapshot ?? 10 }}" required></label>
                                 <label><span class="label">Şube sınırı (boş = sınırsız)</span><input class="input" type="number" name="max_branches" min="1" max="500" value="{{ $current?->max_branches_snapshot ?? $pending?->max_branches_snapshot }}"></label>
-                                <label><span class="label">Bitiş tarihi</span><input class="input" type="date" name="ends_on" value="{{ old('ends_on', $current?->ends_at?->timezone('Europe/Istanbul')->toDateString() ?? today()->addYear()->toDateString()) }}" required></label>
+                                <label><span class="label">Bitiş tarihi</span><input class="input" type="date" name="ends_on" value="{{ $current?->ends_at?->timezone('Europe/Istanbul')->toDateString() ?? today()->addYear()->toDateString() }}" required></label>
                                 <fieldset class="space-y-2 rounded-xl border border-line p-3 md:col-span-2 xl:col-span-4">
                                     <legend class="label">Pakete dahil özellikler</legend>
                                     <div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -104,14 +140,14 @@
                                 <button class="btn btn-primary self-end">Paketi kaydet</button>
                             </form>
                             @if($current)
-                                <form method="post" action="{{ route('platform.subscriptions.cafes.cancel', $cafe) }}" class="mt-3 flex flex-wrap gap-2" onsubmit="return confirm('Bu kafenin etkin paketi iptal edilsin mi?')">
+                                <form method="post" action="{{ route('platform.subscriptions.cafes.cancel', $cafe) }}" class="mt-5 flex flex-wrap gap-2 border-t border-line pt-5" onsubmit="return confirm('Bu kafenin etkin paketi iptal edilsin mi?')">
                                     @csrf @method('DELETE')
                                     <input class="input max-w-sm" name="reason" minlength="3" maxlength="250" placeholder="İptal nedeni" required>
                                     <button class="btn btn-secondary">Paketi iptal et</button>
                                 </form>
                             @endif
                         </div>
-                    </article>
+                    </dialog>
                 @empty
                     <div class="card p-5 text-sm text-muted">Henüz kafe kaydı yok.</div>
                 @endforelse
