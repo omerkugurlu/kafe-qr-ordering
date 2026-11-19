@@ -97,6 +97,10 @@ class TableSessionController extends Controller
         Gate::authorize('view', $session->branch);
         $this->ensureWaiterOwns($request, $session);
 
+        if ($session->status === TableSession::STATUS_OPEN && ! $session->qr_ordering_enabled) {
+            $session->forceFill(['qr_ordering_enabled' => true])->save();
+        }
+
         $dueCents = $session->dueAmountCents();
         $activePayments = $session->payments->whereNull('voided_at');
         $itemDueCents = $paymentAllocation->itemBalances($session);
@@ -119,38 +123,6 @@ class TableSessionController extends Controller
         ));
 
         return view('staff.session', compact('session', 'categories', 'dueCents', 'splitDueCents', 'itemDueCents', 'activePayments', 'activeSplitGroup', 'splitPaidCount'));
-    }
-
-    public function setQrOrdering(Request $request, int $sessionId): RedirectResponse
-    {
-        $validated = $request->validate(['enabled' => ['required', 'boolean']]);
-        $session = TableSession::query()->with('branch')->findOrFail($sessionId);
-        Gate::authorize('view', $session->branch);
-        $this->ensureWaiterOwns($request, $session);
-        $enabled = (bool) $validated['enabled'];
-
-        DB::transaction(function () use ($session, $request, $enabled): void {
-            $locked = TableSession::query()->whereKey($session->id)->lockForUpdate()->firstOrFail();
-            abort_unless($locked->status === TableSession::STATUS_OPEN, 409);
-
-            if ($locked->qr_ordering_enabled === $enabled) {
-                return;
-            }
-
-            $locked->forceFill(['qr_ordering_enabled' => $enabled])->save();
-            ActivityLog::query()->create([
-                'cafe_id' => $locked->branch->cafe_id,
-                'branch_id' => $locked->branch_id,
-                'user_id' => $request->user()->id,
-                'action' => $enabled ? 'table_session.qr_ordering_enabled' : 'table_session.qr_ordering_disabled',
-                'subject_type' => TableSession::class,
-                'subject_id' => $locked->id,
-                'metadata' => [],
-                'ip_address' => $request->ip(),
-            ]);
-        });
-
-        return back()->with('status', $enabled ? 'Masada QR siparişi açıldı.' : 'Masada QR siparişi kapatıldı. Adisyon açık kalır.');
     }
 
     public function addItems(Request $request, int $sessionId, OrderSettlementService $settlement, ProductOptionSelectionService $optionSelection): RedirectResponse

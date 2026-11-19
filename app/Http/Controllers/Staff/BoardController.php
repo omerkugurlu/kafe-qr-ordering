@@ -87,7 +87,7 @@ class BoardController extends Controller
                     'is_open' => $session !== null,
                     'session_id' => $session?->id,
                     'session_url' => $session !== null ? route('staff.sessions.show', $session->id) : null,
-                    'qr_ordering_enabled' => $session?->qr_ordering_enabled ?? false,
+                    'qr_ordering_enabled' => $session !== null,
                     'last_session_url' => $lastSession !== null ? route('staff.sessions.show', $lastSession->id) : null,
                     'last_session_status' => $lastSession?->status,
                     'last_session_opened_label' => $lastSession?->opened_at?->timezone('Europe/Istanbul')->format('d.m.Y H:i'),

@@ -137,7 +137,7 @@ class QrOrderingFlowTest extends TestCase
         $this->assertDatabaseCount('orders', 1);
     }
 
-    public function test_waiter_can_pause_qr_orders_without_closing_the_bill(): void
+    public function test_qr_orders_stay_enabled_without_a_waiter_toggle(): void
     {
         [$cafe, $branch, $table, $token, $product] = $this->createCafeTableAndProduct();
         $this->qrSessionId($table);
@@ -149,28 +149,22 @@ class QrOrderingFlowTest extends TestCase
         ]);
         $branch->staff()->attach($waiter->id);
 
-        $this->actingAs($waiter)->post(route('staff.sessions.qr-ordering.update', $session->id), ['enabled' => 0])
-            ->assertRedirect();
+        $session->forceFill(['qr_ordering_enabled' => false])->save();
+
+        $this->get(route('customer.menu', $token))
+            ->assertOk()
+            ->assertDontSee(__('customer.ordering_unavailable'));
 
         $this->assertDatabaseHas('table_sessions', [
             'id' => $session->id,
             'status' => TableSession::STATUS_OPEN,
-            'qr_ordering_enabled' => false,
+            'qr_ordering_enabled' => true,
         ]);
 
-        $this->get(route('customer.menu', $token))
+        $this->actingAs($waiter)->get(route('staff.sessions.show', $session->id))
             ->assertOk()
-            ->assertSee(__('customer.ordering_unavailable'));
-
-        $this->postJson(route('customer.orders.store', $token), [
-            'session_id' => $session->id,
-            'qr_visit_id' => $this->qrVisitId($table),
-            'items' => [$product->id => 1],
-        ])->assertUnprocessable()
-            ->assertJsonPath('message', 'Bu masa şu anda QR siparişine açık değil. Garsondan masayı açmasını isteyin.');
-
-        $this->actingAs($waiter)->post(route('staff.sessions.qr-ordering.update', $session->id), ['enabled' => 1])
-            ->assertRedirect();
+            ->assertSee('QR siparişi otomatik olarak açık')
+            ->assertDontSee('QR siparişini durdur');
 
         $this->postJson(route('customer.orders.store', $token), [
             'session_id' => $session->id,

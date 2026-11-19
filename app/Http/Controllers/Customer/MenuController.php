@@ -351,6 +351,10 @@ class MenuController extends Controller
                 ->first();
 
             if ($session !== null) {
+                if (! $session->qr_ordering_enabled) {
+                    $session->forceFill(['qr_ordering_enabled' => true])->save();
+                }
+
                 $candidateVisitId = $hasValidVisit && (int) ($qrVisit['session_id'] ?? 0) === (int) $session->id
                     ? (string) $qrVisit['id']
                     : (string) Str::uuid();

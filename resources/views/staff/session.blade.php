@@ -50,18 +50,11 @@
     @endif
 
     @if ($session->status === 'open')
-        <section class="mt-5 flex flex-col gap-3 rounded-2xl border {{ $session->qr_ordering_enabled ? 'border-success/20 bg-success-soft' : 'border-amber/40 bg-amber-soft' }} p-4 sm:flex-row sm:items-center sm:justify-between">
+        <section class="mt-5 rounded-2xl border border-success/20 bg-success-soft p-4">
             <div>
-                <p class="text-sm font-bold {{ $session->qr_ordering_enabled ? 'text-success' : 'text-[#8a5a14]' }}">QR siparişi {{ $session->qr_ordering_enabled ? 'açık' : 'kapalı' }}</p>
-                <p class="mt-1 text-xs leading-5 text-muted">Masa boşaldığında QR siparişini tek dokunuşla durdurun. Adisyon açık kalır; yeniden oturulduğunda tekrar açabilirsiniz.</p>
+                <p class="text-sm font-bold text-success">QR siparişi otomatik olarak açık</p>
+                <p class="mt-1 text-xs leading-5 text-muted">Müşteriler masadaki QR kodunu okutarak sipariş verebilir. Bu ayarı garsonun değiştirmesi gerekmez.</p>
             </div>
-            <form method="post" action="{{ route('staff.sessions.qr-ordering.update', $session->id) }}">
-                @csrf
-                <input type="hidden" name="enabled" value="{{ $session->qr_ordering_enabled ? '0' : '1' }}">
-                <button class="btn {{ $session->qr_ordering_enabled ? 'btn-secondary' : 'btn-primary' }} w-full sm:w-auto" data-submit-once>
-                    {{ $session->qr_ordering_enabled ? 'QR siparişini durdur' : 'QR siparişini yeniden aç' }}
-                </button>
-            </form>
         </section>
     @endif
 

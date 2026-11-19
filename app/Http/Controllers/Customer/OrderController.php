@@ -188,10 +188,6 @@ class OrderController extends Controller
                 ]);
             }
 
-            if (! $session->qr_ordering_enabled) {
-                throw ValidationException::withMessages(['items' => 'Bu masa şu anda QR siparişine açık değil. Garsondan masayı açmasını isteyin.']);
-            }
-
             $unacknowledgedQrOrderExists = $session->orders()
                 ->where('source', 'qr')
                 ->where('status', Order::STATUS_PENDING)
