@@ -41,12 +41,14 @@ class PaymentController extends Controller
         }
         $session = TableSession::query()->with('branch')->findOrFail($sessionId);
         Gate::authorize('view', $session->branch);
+        $this->ensureWaiterOwns($request, $session);
         $closed = false;
         $amountCents = 0;
         $changeCents = 0;
 
         DB::transaction(function () use ($session, $request, $validated, $isSplitPayment, $settlement, $serviceRequests, $paymentAllocation, &$closed, &$amountCents, &$changeCents): void {
             $locked = TableSession::query()->with('branch')->whereKey($session->id)->lockForUpdate()->firstOrFail();
+            $this->ensureWaiterOwns($request, $locked);
             abort_unless($locked->status === TableSession::STATUS_OPEN, 409);
             $dueCents = $locked->dueAmountCents();
             $splitDueCents = array_sum($paymentAllocation->itemBalances($locked));
@@ -265,9 +267,11 @@ class PaymentController extends Controller
         $validated = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:160']]);
         $session = TableSession::query()->with('branch')->findOrFail($sessionId);
         Gate::authorize('view', $session->branch);
+        $this->ensureWaiterOwns($request, $session);
 
         DB::transaction(function () use ($session, $paymentId, $request, $validated, $loyalty): void {
             $locked = TableSession::query()->whereKey($session->id)->lockForUpdate()->firstOrFail();
+            $this->ensureWaiterOwns($request, $locked);
             $wasClosed = $locked->status === TableSession::STATUS_CLOSED;
             $payment = $locked->payments()
                 ->with(['orderItem.order', 'allocations.orderItem.order'])
@@ -289,6 +293,7 @@ class PaymentController extends Controller
                 if ($touchesPaidOrder || $isLegacyUnallocatedPayment) {
                     throw ValidationException::withMessages(['payment' => 'Ödeme kapanmış bir siparişe ait veya adisyon geneline kaydedilmiş. Bu kaydı buradan iptal edemezsiniz.']);
                 }
+
             }
 
             $payment->forceFill(['voided_at' => now(), 'void_reason' => trim($validated['reason'])])->save();
@@ -355,6 +360,14 @@ class PaymentController extends Controller
         });
 
         return redirect()->route('staff.sessions.show', $sessionId)->with('status', 'Ödeme kaydı iptal edildi ve geçmişte tutuldu.');
+    }
+
+    private function ensureWaiterOwns(Request $request, TableSession $session): void
+    {
+        $user = $request->user();
+        if ($user?->role === User::ROLE_WAITER && $session->status === TableSession::STATUS_OPEN) {
+            abort_unless($session->claimForWaiter($user), 403, 'Bu masayla başka bir garson ilgileniyor.');
+        }
     }
 
 }

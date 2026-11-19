@@ -44,6 +44,38 @@ class TableSession extends Model
         return $this->belongsTo(Branch::class);
     }
 
+    public function openedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'opened_by');
+    }
+
+    public function claimForWaiter(User $waiter): bool
+    {
+        if ($this->status !== self::STATUS_OPEN) {
+            return false;
+        }
+
+        $openedBy = $this->openedBy()->first();
+        if ($openedBy?->role === User::ROLE_WAITER) {
+            return (int) $openedBy->id === (int) $waiter->id;
+        }
+
+        $claimed = self::query()
+            ->whereKey($this->id)
+            ->where('status', self::STATUS_OPEN)
+            ->where(function ($query): void {
+                $query->whereNull('opened_by')
+                    ->orWhereNotIn('opened_by', User::query()->select('id')->where('role', User::ROLE_WAITER));
+            })
+            ->update(['opened_by' => $waiter->id, 'updated_at' => now()]);
+
+        if ($claimed === 1) {
+            $this->opened_by = $waiter->id;
+        }
+
+        return $claimed === 1;
+    }
+
     public function diningTable(): BelongsTo
     {
         return $this->belongsTo(DiningTable::class);

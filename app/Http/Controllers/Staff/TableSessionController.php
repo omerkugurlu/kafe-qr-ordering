@@ -47,6 +47,7 @@ class TableSessionController extends Controller
                 ->first();
 
             if ($session !== null) {
+                $this->ensureWaiterOwns($request, $session);
                 return ['session' => $session, 'created' => false];
             }
 
@@ -82,7 +83,7 @@ class TableSessionController extends Controller
         return redirect()->to($url)->with('status', $result['created'] ? 'Masa açıldı. QR ve manuel sipariş alabilirsiniz.' : 'Masanın adisyonu zaten açık.');
     }
 
-    public function show(int $sessionId, PaymentAllocationService $paymentAllocation): View
+    public function show(Request $request, int $sessionId, PaymentAllocationService $paymentAllocation): View
     {
         $session = TableSession::query()->with([
             'branch.cafe',
@@ -94,6 +95,7 @@ class TableSessionController extends Controller
             'payments.splitGroup',
         ])->findOrFail($sessionId);
         Gate::authorize('view', $session->branch);
+        $this->ensureWaiterOwns($request, $session);
 
         $dueCents = $session->dueAmountCents();
         $activePayments = $session->payments->whereNull('voided_at');
@@ -124,6 +126,7 @@ class TableSessionController extends Controller
         $validated = $request->validate(['enabled' => ['required', 'boolean']]);
         $session = TableSession::query()->with('branch')->findOrFail($sessionId);
         Gate::authorize('view', $session->branch);
+        $this->ensureWaiterOwns($request, $session);
         $enabled = (bool) $validated['enabled'];
 
         DB::transaction(function () use ($session, $request, $enabled): void {
@@ -163,6 +166,7 @@ class TableSessionController extends Controller
         $mode = $validated['mode'] ?? 'send';
         $session = TableSession::query()->with('branch.cafe')->findOrFail($sessionId);
         Gate::authorize('view', $session->branch);
+        $this->ensureWaiterOwns($request, $session);
         $quantities = collect($validated['items'])->mapWithKeys(
             fn (int $quantity, string|int $id): array => [(int) $id => $quantity],
         )->filter(fn (int $quantity): bool => $quantity > 0);
@@ -379,6 +383,7 @@ class TableSessionController extends Controller
         $validated = $request->validate(['closing_note' => ['nullable', 'string', 'max:160']]);
         $session = TableSession::query()->with('branch')->findOrFail($sessionId);
         Gate::authorize('view', $session->branch);
+        $this->ensureWaiterOwns($request, $session);
 
         DB::transaction(function () use ($session, $request, $validated, $settlement, $serviceRequests): void {
             $locked = TableSession::query()->whereKey($session->id)->lockForUpdate()->firstOrFail();
@@ -424,6 +429,14 @@ class TableSessionController extends Controller
         }
 
         return redirect()->route('staff.branch', $session->branch_id);
+    }
+
+    private function ensureWaiterOwns(Request $request, TableSession $session): void
+    {
+        $user = $request->user();
+        if ($user?->role === User::ROLE_WAITER && $session->status === TableSession::STATUS_OPEN) {
+            abort_unless($session->claimForWaiter($user), 403, 'Bu masayla başka bir garson ilgileniyor.');
+        }
     }
 
     private static function moneyToCents(string $amount): int

@@ -54,6 +54,8 @@ interface StaffTable {
     dueLabel: string;
     activeOrders: number;
     qrOrderingEnabled: boolean;
+    assignedWaiterId: number | null;
+    assignedWaiterName: string | null;
 }
 interface ServiceRequest {
     id: number;
@@ -406,7 +408,7 @@ export function StaffBoardPage({
                 </div>
             </header>
 
-            <div className="mx-auto max-w-[1500px] px-4 pt-5 sm:px-7">
+            <div className="mx-auto w-full max-w-none px-3 pt-3 sm:px-5">
                 {(error || notice) && (
                     <div
                         aria-live="polite"
@@ -425,7 +427,7 @@ export function StaffBoardPage({
                         </button>
                     </div>
                 )}
-                <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {kitchenMode && <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                     <Metric
                         icon={<Bell className="size-4" />}
                         label="Yeni sipariş"
@@ -450,7 +452,7 @@ export function StaffBoardPage({
                         value={board?.summary.openTables ?? "—"}
                         tone="cream"
                     />
-                </section>
+                </section>}
 
                 {!board?.branch && (
                     <section className="card mt-5 p-6 text-center">
@@ -460,8 +462,8 @@ export function StaffBoardPage({
                     </section>
                 )}
                 {board?.branch && (
-                    <>
-                        <section className="mt-7">
+                    <div className={kitchenMode ? "space-y-6" : "flex flex-col gap-4"}>
+                        {kitchenMode && <section className="mt-4">
                             <div className="mb-3 flex items-end justify-between">
                                 <div>
                                     <p className="eyebrow">Servis akışı</p>
@@ -537,10 +539,10 @@ export function StaffBoardPage({
                                     busy={busy}
                                 />
                             </div>
-                        </section>
+                        </section>}
 
                         {!kitchenMode && (
-                            <section className="mt-8">
+                            <section className="order-2">
                                 <div className="mb-3 flex items-end justify-between">
                                     <div>
                                         <p className="eyebrow">
@@ -554,14 +556,15 @@ export function StaffBoardPage({
                                         Masaya dokun, adisyonu aç
                                     </span>
                                 </div>
-                                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
+                                <div className="grid grid-cols-2 gap-3">
                                     {board.tables.map((table) => (
                                         <button
-                                            className={`card-flat relative min-h-32 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-soft ${table.isOpen ? "border-forest/25" : "border-dashed"}`}
+                                            className={`card-flat relative min-h-28 p-4 text-left transition hover:shadow-soft ${table.isOpen ? "border-forest/25" : "border-dashed"}`}
                                             key={table.id}
                                             onClick={() =>
                                                 void openTable(table)
                                             }
+                                            disabled={user.role === "waiter" && table.isOpen && table.assignedWaiterId !== null && table.assignedWaiterId !== user.id}
                                             type="button"
                                         >
                                             <div className="flex items-start justify-between gap-2">
@@ -574,9 +577,10 @@ export function StaffBoardPage({
                                             </div>
                                             <p className="mt-1 text-xs text-muted">
                                                 {table.isOpen
-                                                    ? `${table.activeOrders} sipariş · ${table.dueLabel} kalan`
+                                                    ? `${table.activeOrders} sipariş · ${table.dueLabel} · ${table.dueCents > 0 ? "Adisyon açık" : "Ödeme bekleniyor"}`
                                                     : "Boş masa"}
                                             </p>
+                                            {table.isOpen && table.assignedWaiterName && <p className="mt-1 text-xs font-semibold text-muted">Garson: {table.assignedWaiterName}</p>}
                                             <span
                                                 className={`mt-4 inline-flex items-center gap-1 text-xs font-bold ${table.isOpen ? "text-forest" : "text-muted"}`}
                                             >
@@ -589,7 +593,7 @@ export function StaffBoardPage({
                                                     <DoorOpen className="size-3" />
                                                 )}
                                                 {table.isOpen
-                                                    ? "Adisyonu aç"
+                                                    ? table.assignedWaiterId && table.assignedWaiterId !== user.id && user.role === "waiter" ? "Başka garson ilgileniyor" : "Adisyonu aç"
                                                     : "Masayı aç"}
                                             </span>
                                         </button>
@@ -599,7 +603,7 @@ export function StaffBoardPage({
                         )}
 
                         {!kitchenMode && (
-                            <section className="mt-8">
+                            <section className="order-1">
                                 <div className="mb-3 flex items-end justify-between">
                                     <div>
                                         <p className="eyebrow">
@@ -702,7 +706,7 @@ export function StaffBoardPage({
                                 )}
                             </section>
                         )}
-                    </>
+                    </div>
                 )}
             </div>
 

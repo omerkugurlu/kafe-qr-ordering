@@ -255,6 +255,23 @@ class OperationsPanelTest extends TestCase
             ->assertJsonPath('orders.0.source', 'waiter');
     }
 
+    public function test_only_the_waiter_who_claimed_an_open_table_can_open_its_adisyon(): void
+    {
+        [$cafe, $branch, $session] = $this->openTable();
+        $firstWaiter = $this->staffUser(User::ROLE_WAITER, $cafe, $branch);
+        $secondWaiter = $this->staffUser(User::ROLE_WAITER, $cafe, $branch);
+
+        $this->actingAs($firstWaiter)->postJson(route('staff.sessions.open-table', [$branch, $session->diningTable]))
+            ->assertOk();
+
+        $this->assertDatabaseHas('table_sessions', ['id' => $session->id, 'opened_by' => $firstWaiter->id]);
+
+        $this->actingAs($secondWaiter)->postJson(route('staff.sessions.open-table', [$branch, $session->diningTable]))
+            ->assertForbidden();
+        $this->actingAs($secondWaiter)->get(route('staff.sessions.show', $session->id))
+            ->assertForbidden();
+    }
+
     public function test_owner_kitchen_preview_uses_manage_endpoints_instead_of_waiter_only_routes(): void
     {
         [$cafe, $branch] = $this->openTable();

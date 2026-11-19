@@ -100,7 +100,11 @@ class QrOrderingFlowTest extends TestCase
             ->assertJsonPath('message', 'Bu QR oturumu sona erdi. Sipariş vermek için masadaki QR kodu yeniden okutun.');
 
         // A normal refresh with the revoked visit must not start another seating.
-        $this->get(route('customer.menu', $token))->assertOk();
+        $staleMenu = $this->get(route('customer.menu', $token))->assertOk();
+        preg_match('~<script type="application/json" id="menu-data">(.*?)</script>~s', $staleMenu->getContent(), $staleMatches);
+        $staleData = json_decode($staleMatches[1] ?? '', true);
+        $this->assertNull($staleData['session'] ?? null);
+        $this->assertFalse($staleData['ordering_available'] ?? true);
         $this->assertDatabaseCount('table_sessions', 1);
 
         // Scanning the fixed QR explicitly starts the next seating.

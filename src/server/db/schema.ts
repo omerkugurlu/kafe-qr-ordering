@@ -129,6 +129,7 @@ export const schemaStatements = [
         status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
         qr_ordering_enabled INTEGER NOT NULL DEFAULT 1,
         opened_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        assigned_waiter_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
         closed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
         opened_at TEXT NOT NULL,
         closed_at TEXT,

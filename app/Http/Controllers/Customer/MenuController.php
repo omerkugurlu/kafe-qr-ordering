@@ -323,6 +323,14 @@ class MenuController extends Controller
                     ? $session
                     : null;
             }
+
+            // Keep a browser with a revoked or stale visit from silently opening
+            // a new seating when its old menu tab is refreshed after payment.
+            // A fresh browser has no visit entry and can claim a printed QR as
+            // before; a returning browser must explicitly scan the QR again.
+            if ($qrVisit !== null) {
+                return null;
+            }
         }
 
         $result = DB::transaction(function () use ($table, $request, $hasValidVisit, $qrVisit): array {

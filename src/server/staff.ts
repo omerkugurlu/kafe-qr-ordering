@@ -38,6 +38,7 @@ function parseInput<T>(schema: z.ZodType<T>, value: unknown): T {
 async function findSession(database: Client, sessionId: number) {
     const result = await database.execute({
         sql: `SELECT s.id, s.branch_id, s.dining_table_id, s.status, s.qr_ordering_enabled, s.opened_at,
+                     s.assigned_waiter_id,
                      s.closed_at, s.opened_by, s.closed_by, s.closing_note, b.cafe_id, b.name AS branch_name,
                      t.name AS table_name, c.name AS cafe_name
               FROM table_sessions s JOIN branches b ON b.id = s.branch_id
@@ -59,6 +60,23 @@ async function getScopedSession(
 ) {
     const session = await findSession(database, sessionId);
     await requireBranchAccess(user, Number(session.branch_id), environment);
+    if (user.role === "waiter" && String(session.status) === "open") {
+        const claimed = await database.execute({
+            sql: "UPDATE table_sessions SET assigned_waiter_id=?,updated_at=? WHERE id=? AND status='open' AND (assigned_waiter_id IS NULL OR assigned_waiter_id=?)",
+            args: [user.id, nowIso(environment), sessionId, user.id],
+        });
+        if (claimed.rowsAffected !== 1) {
+            const owner = await database.execute({
+                sql: "SELECT u.name FROM table_sessions s JOIN users u ON u.id=s.assigned_waiter_id WHERE s.id=?",
+                args: [sessionId],
+            });
+            throw new ApiError(
+                409,
+                `${String(owner.rows[0]?.name ?? "Başka bir garson")} bu masayla ilgileniyor.`,
+                "table_assigned_to_other_waiter",
+            );
+        }
+    }
     return session;
 }
 
@@ -155,10 +173,11 @@ async function board(
     }
 
     const tableRows = await database.execute({
-        sql: `SELECT t.id, t.name, s.id AS session_id, s.status AS session_status, s.qr_ordering_enabled, s.opened_at
+        sql: `SELECT t.id, t.name, s.id AS session_id, s.status AS session_status, s.qr_ordering_enabled, s.opened_at,
+                     s.assigned_waiter_id, aw.name AS assigned_waiter_name
               FROM dining_tables t LEFT JOIN table_sessions s ON s.id = (
                 SELECT MAX(s2.id) FROM table_sessions s2 WHERE s2.dining_table_id = t.id
-              ) WHERE t.branch_id = ? AND t.is_active = 1 AND t.deleted_at IS NULL ORDER BY t.name`,
+              ) LEFT JOIN users aw ON aw.id=s.assigned_waiter_id WHERE t.branch_id = ? AND t.is_active = 1 AND t.deleted_at IS NULL ORDER BY t.name`,
         args: [branchId],
     });
     const tables = [];
@@ -189,6 +208,8 @@ async function board(
                 ? String(row.session_status)
                 : null,
             qrOrderingEnabled: isOpen && Number(row.qr_ordering_enabled) === 1,
+            assignedWaiterId: row.assigned_waiter_id === null ? null : Number(row.assigned_waiter_id),
+            assignedWaiterName: row.assigned_waiter_name ? String(row.assigned_waiter_name) : null,
             openedAt: row.opened_at ? String(row.opened_at) : null,
             dueCents: sessionInfo?.dueCents ?? 0,
             dueLabel: sessionInfo?.dueLabel ?? formatCurrency(0),
@@ -642,15 +663,30 @@ async function openTable(
         if (!tableResult.rows.length)
             throw new ApiError(404, "Masa bulunamadı.", "table_not_found");
         const current = await transaction.execute({
-            sql: `SELECT id FROM table_sessions WHERE dining_table_id=? AND status='open' LIMIT 1`,
+            sql: `SELECT id,assigned_waiter_id FROM table_sessions WHERE dining_table_id=? AND status='open' LIMIT 1`,
             args: [tableId],
         });
-        if (current.rows[0])
+        if (current.rows[0]) {
+            const existingOwner = current.rows[0].assigned_waiter_id;
+            if (existingOwner !== null && Number(existingOwner) !== user.id && user.role === "waiter") {
+                const owner = await transaction.execute({
+                    sql: "SELECT name FROM users WHERE id=?",
+                    args: [Number(existingOwner)],
+                });
+                throw new ApiError(409, `${String(owner.rows[0]?.name ?? "Başka bir garson")} bu masayla ilgileniyor.`, "table_assigned_to_other_waiter");
+            }
+            if (user.role === "waiter") {
+                await transaction.execute({
+                    sql: "UPDATE table_sessions SET assigned_waiter_id=?,updated_at=? WHERE id=? AND (assigned_waiter_id IS NULL OR assigned_waiter_id=?)",
+                    args: [user.id, now, Number(current.rows[0].id), user.id],
+                });
+            }
             return { id: Number(current.rows[0].id), created: false };
+        }
         const inserted = await transaction.execute({
-            sql: `INSERT INTO table_sessions (branch_id,dining_table_id,status,qr_ordering_enabled,opened_by,opened_at,created_at,updated_at)
-                  VALUES (?,?,'open',1,?,?,?,?) RETURNING id`,
-            args: [branchId, tableId, user.id, now, now, now],
+            sql: `INSERT INTO table_sessions (branch_id,dining_table_id,status,qr_ordering_enabled,opened_by,assigned_waiter_id,opened_at,created_at,updated_at)
+                  VALUES (?,?,'open',1,?,?,?,?,?) RETURNING id`,
+            args: [branchId, tableId, user.id, user.role === "waiter" ? user.id : null, now, now, now],
         });
         const sessionId = Number(inserted.rows[0]?.id);
         await transaction.execute({

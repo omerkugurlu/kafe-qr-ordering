@@ -90,11 +90,21 @@ export async function getDatabase(): Promise<Client> {
 export async function initializeDatabase(client?: Client): Promise<Client> {
     const database = client ?? (await getDatabase());
 
+    const ensureStaffAssignmentColumn = async () => {
+        const columns = await database.execute("PRAGMA table_info(table_sessions)");
+        if (!columns.rows.some((column) => column.name === "assigned_waiter_id")) {
+            await database.execute(
+                "ALTER TABLE table_sessions ADD COLUMN assigned_waiter_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
+            );
+        }
+    };
+
     if (client) {
         if (initializedClients.has(client)) return database;
         for (const statement of schemaStatements) {
             await database.execute(statement);
         }
+        await ensureStaffAssignmentColumn();
         initializedClients.add(client);
         return database;
     }
@@ -103,6 +113,7 @@ export async function initializeDatabase(client?: Client): Promise<Client> {
         for (const statement of schemaStatements) {
             await database.execute(statement);
         }
+        await ensureStaffAssignmentColumn();
     })();
 
     await initializationPromise;

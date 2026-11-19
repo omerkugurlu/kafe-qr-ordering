@@ -58,7 +58,7 @@ class BoardController extends Controller
             ->get();
 
         $openSessions = $branch->tableSessions()
-            ->with('diningTable')
+            ->with(['diningTable', 'openedBy'])
             ->where('status', TableSession::STATUS_OPEN)
             ->get()
             ->keyBy('dining_table_id');
@@ -79,6 +79,7 @@ class BoardController extends Controller
             ->map(function ($table) use ($openSessions, $latestSessions): array {
                 $session = $openSessions->get($table->id);
                 $lastSession = $latestSessions->get($table->id);
+                $assignedWaiter = $session?->openedBy?->role === User::ROLE_WAITER ? $session->openedBy : null;
 
                 return [
                     'id' => $table->id,
@@ -94,6 +95,11 @@ class BoardController extends Controller
                     'due' => Money::format($session?->dueAmountCents() ?? 0),
                     'active_orders' => $session?->activeOrdersCount() ?? 0,
                     'opened_label' => $session?->opened_at?->diffForHumans(),
+                    'assigned_waiter_id' => $assignedWaiter?->id,
+                    'assigned_waiter_name' => $assignedWaiter?->name,
+                    'assigned_to_other_waiter' => auth()->user()?->role === User::ROLE_WAITER
+                        && $assignedWaiter !== null
+                        && (int) $assignedWaiter->id !== (int) auth()->id(),
                 ];
             })
             ->values()
@@ -186,6 +192,9 @@ class BoardController extends Controller
 
         DB::transaction(function () use ($order, $target, $validated, $request, $settlement, $loyalty, &$alreadyAtTarget): void {
             $session = TableSession::query()->whereKey($order->table_session_id)->lockForUpdate()->firstOrFail();
+            if ($request->user()->role === User::ROLE_WAITER && $session->status === TableSession::STATUS_OPEN) {
+                abort_unless($session->claimForWaiter($request->user()), 403, 'Bu masayla başka bir garson ilgileniyor.');
+            }
             $lockedOrder = Order::query()->whereKey($order->id)->where('table_session_id', $session->id)->lockForUpdate()->firstOrFail();
 
             if ($lockedOrder->status === $target) {

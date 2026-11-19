@@ -124,11 +124,19 @@ function kitchenOrderCard(order) {
 
 function tableCard(table, kitchen = false, openTableUrl = null) {
     if (table.is_open) {
+        if (table.assigned_to_other_waiter) {
+            return `
+                <div class="rounded-2xl border border-line bg-paper p-3 opacity-70" aria-disabled="true">
+                    <p class="truncate text-sm font-bold text-ink">${escapeHtml(table.name)}</p>
+                    <p class="mt-1 text-xs font-semibold text-muted">Adisyon açık · ${escapeHtml(table.active_orders)} aktif sipariş</p>
+                    <p class="mt-1 text-[11px] font-semibold text-terracotta">${escapeHtml(table.assigned_waiter_name ?? 'Başka bir garson')} ilgileniyor</p>
+                </div>`;
+        }
         return `
             <a href="${escapeHtml(table.session_url ?? '#')}" class="group rounded-2xl border border-forest/15 bg-sage/40 p-2.5 transition hover:border-forest/40">
                 <p class="truncate text-xs font-bold text-forest">${escapeHtml(table.name)}</p>
-                <p class="mt-0.5 text-[10px] font-semibold text-forest/70">${table.active_orders} aktif · ${money(table.due_cents)}</p>
-                <p class="mt-1 text-[10px] font-semibold ${table.qr_ordering_enabled ? 'text-success' : 'text-terracotta'}">QR ${table.qr_ordering_enabled ? 'açık' : 'kapalı'}</p>
+                <p class="mt-0.5 text-xs font-semibold text-forest/70">${table.active_orders} sipariş · ${money(table.due_cents)} kalan</p>
+                <p class="mt-1 text-[11px] font-semibold text-success">Adisyon açık${table.assigned_waiter_name ? ` · ${escapeHtml(table.assigned_waiter_name)}` : ''}</p>
             </a>`;
     }
 

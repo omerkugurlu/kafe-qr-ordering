@@ -73,6 +73,7 @@ Route::middleware(['auth', 'auth.session', 'role:platform_admin'])->prefix('plat
     Route::post('/paket-talepleri/{subscriptionRequest}/onayla', [PlatformSubscriptionController::class, 'approve'])->middleware('throttle:admin-write')->name('subscriptions.requests.approve');
     Route::post('/paket-talepleri/{subscriptionRequest}/reddet', [PlatformSubscriptionController::class, 'reject'])->middleware('throttle:admin-write')->name('subscriptions.requests.reject');
     Route::post('/kafeler/{cafe}/paket', [PlatformSubscriptionController::class, 'assign'])->middleware('throttle:admin-write')->name('subscriptions.cafes.assign');
+    Route::delete('/kafeler/{cafe}/paket', [PlatformSubscriptionController::class, 'cancel'])->middleware('throttle:admin-write')->name('subscriptions.cafes.cancel');
     Route::get('/cafeler/{cafe}', [CafeController::class, 'show'])->name('cafes.show');
     Route::post('/cafeler', [CafeController::class, 'store'])->middleware('throttle:admin-write')->name('cafes.store');
     Route::patch('/cafeler/{cafe}', [CafeController::class, 'update'])->middleware('throttle:admin-write')->name('cafes.update');

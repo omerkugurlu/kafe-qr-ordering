@@ -59,6 +59,51 @@ async function api(
 }
 
 describe("Netlify/Turso API customer and staff flow", () => {
+    it("assigns an open table to the first waiter and blocks other waiters", async () => {
+        const now = new Date().toISOString();
+        const second = await database.execute({
+            sql: "INSERT INTO users (cafe_id,name,email,password_hash,role,created_at,updated_at) VALUES (1,'İkinci Garson','second-waiter@example.test',?,'waiter',?,?) RETURNING id",
+            args: [hashSync("Password123", 4), now, now],
+        });
+        await database.execute({
+            sql: "INSERT INTO branch_user (branch_id,user_id) VALUES (1,?)",
+            args: [Number(second.rows[0].id)],
+        });
+
+        const firstLogin = await api("/api/auth/login", "POST", {
+            email: fixture.waiterEmail,
+            password: fixture.waiterPassword,
+        });
+        const firstCookie = firstLogin.headers.get("set-cookie")?.split(";")[0];
+        const firstPayload = await firstLogin.json();
+        const firstOpen = await api(
+            "/api/staff/branches/1/tables/1/open",
+            "POST",
+            {},
+            { cookie: firstCookie, csrf: firstPayload.csrfToken },
+        );
+        expect(firstOpen.status).toBe(200);
+
+        const secondLogin = await api("/api/auth/login", "POST", {
+            email: "second-waiter@example.test",
+            password: "Password123",
+        });
+        const secondCookie = secondLogin.headers.get("set-cookie")?.split(";")[0];
+        const secondPayload = await secondLogin.json();
+        const secondOpen = await api(
+            "/api/staff/branches/1/tables/1/open",
+            "POST",
+            {},
+            { cookie: secondCookie, csrf: secondPayload.csrfToken },
+        );
+        expect(secondOpen.status).toBe(409);
+        const owner = await database.execute({
+            sql: "SELECT assigned_waiter_id FROM table_sessions WHERE id=?",
+            args: [fixture.sessionId],
+        });
+        expect(owner.rows[0].assigned_waiter_id).toBe(1);
+    });
+
     it("returns a mobile-ready menu with branch pricing and option prices", async () => {
         const response = await api(`/api/tables/${fixture.token}/menu`);
         expect(response.status).toBe(200);

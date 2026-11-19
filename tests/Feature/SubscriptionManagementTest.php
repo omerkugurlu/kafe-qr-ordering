@@ -17,10 +17,22 @@ class SubscriptionManagementTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_owner_can_request_a_yearly_plan_and_admin_can_activate_after_payment_confirmation(): void
+    public function test_admin_can_approve_a_plan_request_without_confirmation_checkbox_and_it_replaces_current_plan(): void
     {
         [$cafe, $owner] = $this->createCafeAndOwner();
         $plan = SubscriptionPlan::query()->where('code', 'orta')->firstOrFail();
+        $existingPlan = SubscriptionPlan::query()->where('code', 'giris')->firstOrFail();
+        $existing = $cafe->subscriptions()->create([
+            'subscription_plan_id' => $existingPlan->id,
+            'plan_name_snapshot' => $existingPlan->name,
+            'status' => 'active',
+            'starts_at' => now()->subMonth(),
+            'ends_at' => now()->addMonths(11),
+            'annual_price_snapshot_cents' => $existingPlan->annual_price_cents,
+            'max_tables_snapshot' => $existingPlan->max_tables,
+            'max_branches_snapshot' => $existingPlan->max_branches,
+            'features_snapshot_json' => $existingPlan->features_json,
+        ]);
 
         $this->actingAs($owner)
             ->get(route('manage.subscription.index'))
@@ -37,15 +49,59 @@ class SubscriptionManagementTest extends TestCase
 
         $admin = User::factory()->create(['role' => User::ROLE_PLATFORM_ADMIN, 'cafe_id' => null]);
         $this->actingAs($admin)
-            ->post(route('platform.subscriptions.requests.approve', $request), ['payment_confirmed' => '1'])
+            ->post(route('platform.subscriptions.requests.approve', $request))
             ->assertSessionHasNoErrors();
 
         $request->refresh();
-        $subscription = CafeSubscription::query()->where('cafe_id', $cafe->id)->firstOrFail();
+        $subscription = CafeSubscription::query()->where('cafe_id', $cafe->id)->latest('id')->firstOrFail();
         $this->assertSame('approved', $request->status);
+        $this->assertSame('replaced', $existing->fresh()->status);
         $this->assertSame('active', $subscription->status);
+        $this->assertSame($plan->id, $subscription->subscription_plan_id);
         $this->assertTrue($subscription->ends_at->isFuture());
         $this->assertTrue(app(SubscriptionService::class)->featureEnabled($cafe, 'loyalty'));
+    }
+
+    public function test_platform_admin_can_edit_and_cancel_cafe_subscription_snapshots(): void
+    {
+        [$cafe] = $this->createCafeAndOwner();
+        $plan = SubscriptionPlan::query()->where('code', 'giris')->firstOrFail();
+        $subscription = $cafe->subscriptions()->create([
+            'subscription_plan_id' => $plan->id,
+            'plan_name_snapshot' => $plan->name,
+            'status' => 'active',
+            'starts_at' => now()->subDay(),
+            'ends_at' => now()->addYear(),
+            'annual_price_snapshot_cents' => $plan->annual_price_cents,
+            'max_tables_snapshot' => $plan->max_tables,
+            'max_branches_snapshot' => $plan->max_branches,
+            'features_snapshot_json' => $plan->features_json,
+        ]);
+        $admin = User::factory()->create(['role' => User::ROLE_PLATFORM_ADMIN, 'cafe_id' => null]);
+
+        $this->actingAs($admin)->post(route('platform.subscriptions.cafes.assign', $cafe), [
+            'plan_id' => $plan->id,
+            'ends_on' => today()->addDays(345)->toDateString(),
+            'annual_price_tl' => '3450.75',
+            'max_tables' => 34,
+            'max_branches' => 5,
+            'features' => ['coupons' => '1', 'reports' => '1'],
+            'reason' => 'Elle paket düzenleme',
+        ])->assertSessionHasNoErrors();
+
+        $subscription->refresh();
+        $this->assertSame(34, $subscription->max_tables_snapshot);
+        $this->assertSame(5, $subscription->max_branches_snapshot);
+        $this->assertSame(345075, $subscription->annual_price_snapshot_cents);
+        $this->assertTrue($subscription->features_snapshot_json['coupons']);
+        $this->assertFalse($subscription->features_snapshot_json['loyalty']);
+
+        $this->actingAs($admin)->delete(route('platform.subscriptions.cafes.cancel', $cafe), [
+            'reason' => 'Kafe talebiyle iptal',
+        ])->assertSessionHasNoErrors();
+
+        $this->assertSame('cancelled', $subscription->fresh()->status);
+        $this->assertFalse(app(SubscriptionService::class)->serviceEnabled($cafe->fresh()));
     }
 
     public function test_platform_admin_can_edit_plan_price_limits_and_features(): void

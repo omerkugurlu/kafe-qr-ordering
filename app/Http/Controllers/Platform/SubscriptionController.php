@@ -84,18 +84,14 @@ class SubscriptionController extends Controller
 
     public function approve(Request $request, CafeSubscriptionRequest $subscriptionRequest): RedirectResponse
     {
-        $request->validate(['payment_confirmed' => ['required', 'accepted']]);
-
         DB::transaction(function () use ($request, $subscriptionRequest): void {
             $item = CafeSubscriptionRequest::query()->whereKey($subscriptionRequest->id)->lockForUpdate()->firstOrFail();
             if ($item->status !== 'pending') {
                 throw ValidationException::withMessages(['request' => 'Bu paket talebi daha önce sonuçlandırılmış.']);
             }
             $cafe = Cafe::query()->whereKey($item->cafe_id)->lockForUpdate()->firstOrFail();
-            app(SubscriptionService::class)->ensureFits($cafe, $item->max_tables_snapshot, $item->max_branches_snapshot);
-            $lastEnd = $cafe->subscriptions()->where('status', 'active')->where('ends_at', '>', now())->max('ends_at');
-            $startsAt = $lastEnd ? Carbon::parse($lastEnd) : now();
-            $startsAt = $startsAt->copy();
+            $cafe->subscriptions()->where('status', 'active')->where('ends_at', '>', now())->update(['status' => 'replaced', 'updated_at' => now()]);
+            $startsAt = now();
             $endsAt = $startsAt->copy()->addYear();
             $subscription = $cafe->subscriptions()->create([
                 'subscription_plan_id' => $item->subscription_plan_id,
@@ -148,35 +144,62 @@ class SubscriptionController extends Controller
     {
         $validated = $request->validate([
             'plan_id' => ['required', 'integer', 'exists:subscription_plans,id'],
-            'ends_on' => ['required', 'date', 'after_or_equal:today'],
+            'ends_on' => ['required', 'date'],
+            'max_tables' => ['required', 'integer', 'min:1', 'max:5000'],
+            'max_branches' => ['nullable', 'integer', 'min:1', 'max:500'],
+            'annual_price_tl' => ['required', 'numeric', 'min:0', 'max:1000000'],
+            'features' => ['sometimes', 'array'],
+            'features.*' => ['sometimes', 'boolean'],
             'reason' => ['required', 'string', 'min:3', 'max:250'],
         ]);
         $plan = SubscriptionPlan::query()->findOrFail($validated['plan_id']);
-        $subscriptions = app(SubscriptionService::class);
-        $subscriptions->ensureFits($cafe, $plan->max_tables, $plan->max_branches);
-        $pending = $cafe->subscriptionRequests()->where('status', 'pending')->exists();
-        if ($pending) {
-            throw ValidationException::withMessages(['subscription' => 'Önce bu kafenin bekleyen paket talebini sonuçlandırın.']);
+        $features = array_fill_keys(array_keys(SubscriptionService::FEATURES), false);
+        foreach ($validated['features'] ?? [] as $key => $enabled) {
+            if (array_key_exists($key, $features)) {
+                $features[$key] = (bool) $enabled;
+            }
         }
+        $priceCents = Money::toCents((string) $validated['annual_price_tl']);
 
-        DB::transaction(function () use ($request, $cafe, $plan, $validated): void {
-            $cafe->subscriptions()->where('status', 'active')->where('ends_at', '>', now())->update(['status' => 'replaced', 'updated_at' => now()]);
-            $cafe->subscriptions()->create([
+        DB::transaction(function () use ($request, $cafe, $plan, $validated, $features, $priceCents): void {
+            $active = $cafe->subscriptions()->where('status', 'active')->where('ends_at', '>', now())->orderByDesc('starts_at')->orderByDesc('id')->first();
+            $attributes = [
                 'subscription_plan_id' => $plan->id,
                 'activated_by' => $request->user()->id,
                 'plan_name_snapshot' => $plan->name,
                 'status' => 'active',
                 'starts_at' => now(),
                 'ends_at' => Carbon::parse($validated['ends_on'])->endOfDay(),
-                'annual_price_snapshot_cents' => $plan->annual_price_cents,
-                'max_tables_snapshot' => $plan->max_tables,
-                'max_branches_snapshot' => $plan->max_branches,
-                'features_snapshot_json' => $plan->features_json,
-            ]);
-            $this->log($request, $cafe->id, 'subscription.admin_overridden', CafeSubscription::class, $plan->id, ['reason' => $validated['reason'], 'plan' => $plan->name]);
+                'annual_price_snapshot_cents' => $priceCents,
+                'max_tables_snapshot' => $validated['max_tables'],
+                'max_branches_snapshot' => $validated['max_branches'] ?? null,
+                'features_snapshot_json' => $features,
+            ];
+            if ($active !== null) {
+                $active->forceFill($attributes)->save();
+                $subscription = $active;
+            } else {
+                $cafe->subscriptions()->where('status', 'active')->update(['status' => 'replaced', 'updated_at' => now()]);
+                $subscription = $cafe->subscriptions()->create($attributes);
+            }
+            $this->log($request, $cafe->id, 'subscription.admin_overridden', CafeSubscription::class, $subscription->id, ['reason' => $validated['reason'], 'plan' => $plan->name]);
         });
 
-        return back()->with('status', $cafe->name.' için paket ve bitiş tarihi güncellendi.');
+        return back()->with('status', $cafe->name.' paket bilgileri ve bitiş tarihi güncellendi.');
+    }
+
+    public function cancel(Request $request, Cafe $cafe): RedirectResponse
+    {
+        $validated = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:250']]);
+        DB::transaction(function () use ($request, $cafe, $validated): void {
+            $subscriptions = $cafe->subscriptions()->where('status', 'active')->where('ends_at', '>', now())->get();
+            foreach ($subscriptions as $subscription) {
+                $subscription->forceFill(['status' => 'cancelled', 'ends_at' => now()])->save();
+                $this->log($request, $cafe->id, 'subscription.admin_cancelled', CafeSubscription::class, $subscription->id, ['reason' => $validated['reason']]);
+            }
+        });
+
+        return back()->with('status', $cafe->name.' için etkin paket iptal edildi.');
     }
 
     private function log(Request $request, ?int $cafeId, string $action, string $subjectType, int $subjectId, array $metadata): void
